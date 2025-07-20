@@ -1,0 +1,26 @@
+FROM ghcr.io/cross-rs/aarch64-unknown-linux-gnu:edge
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN dpkg --add-architecture arm64 && \
+    apt-get update && \
+    apt-get install --assume-yes --no-install-recommends \
+    libx11-dev:arm64 libxext-dev:arm64 libxft-dev:arm64 \
+    libxinerama-dev:arm64 libxcursor-dev:arm64 \
+    libxrender-dev:arm64  libxfixes-dev:arm64  libgl1-mesa-dev:arm64 \
+    libglu1-mesa-dev:arm64 libasound2-dev:arm64 libpango1.0-dev:arm64
+
+RUN apt-get update && \
+    apt-get install --assume-yes --no-install-recommends wget build-essential ca-certificates pkg-config perl gcc && \
+    wget https://github.com/openssl/openssl/releases/download/openssl-3.5.0/openssl-3.5.0.tar.gz && \
+    tar xzf openssl-3.5.0.tar.gz && \
+    cd openssl-3.5.0 && \
+    ./Configure linux-aarch64 --cross-compile-prefix=aarch64-linux-gnu- --prefix=/usr/local/openssl3 && \
+    make && \
+    make install && \
+    cd .. && rm -rf openssl-3.*
+
+ENV OPENSSL_DIR=/usr/local/openssl3
+ENV OPENSSL_LIB_DIR=/usr/local/openssl3/lib
+ENV OPENSSL_INCLUDE_DIR=/usr/local/openssl3/include
+ENV OPENSSL_NO_PKG_CONFIG=1
