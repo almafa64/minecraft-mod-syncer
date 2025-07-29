@@ -2,11 +2,12 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use fltk::{prelude::*, *};
+use fltk::{browser::CheckBrowser, prelude::*, *};
 use lazy_static::lazy_static;
 use tokio::sync::RwLock;
 
@@ -18,6 +19,7 @@ mod api;
 mod syncer;
 mod utils;
 
+#[derive(Debug)]
 pub struct AppState {
     server_api_address: Option<String>,
     server_main_address: Option<String>,
@@ -346,9 +348,6 @@ async fn main() {
                 Events::ModsResult(branch_info) => {
                     let mut app_state_locked = app_state.write().await;
 
-                    let remote_mod_names: Vec<String> =
-                        branch_info.mods.iter().map(|x| x.name.clone()).collect();
-
                     app_state_locked.branch_info = Some(branch_info);
 
                     let mods_pathbuf = match app_state_locked.mods_path.as_ref() {
@@ -357,11 +356,10 @@ async fn main() {
                     };
 
                     let local_mod_names = syncer::get_local_mods(&mods_pathbuf).unwrap();
+                    let remote_mods = &app_state_locked.branch_info.as_ref().unwrap().mods;
 
-                    let to_deletes =
-                        syncer::get_mods_to_delete(&remote_mod_names, &local_mod_names);
-                    let to_downloads =
-                        syncer::get_mods_to_download(&remote_mod_names, &local_mod_names);
+                    let to_deletes = syncer::get_mods_to_delete(remote_mods, &local_mod_names);
+                    let to_downloads = syncer::get_mods_to_download(remote_mods, &local_mod_names);
 
                     for to_delete in to_deletes.iter() {
                         let is_checked = true;
@@ -372,11 +370,11 @@ async fn main() {
                     }
 
                     for to_download in to_downloads.iter() {
-                        let is_checked = true;
-                        download_list.add(to_download, is_checked);
+                        let is_checked = !to_download.is_optional;
+                        download_list.add(&to_download.name, is_checked);
                         app_state_locked
                             .to_download_names
-                            .insert(to_download.to_string(), is_checked);
+                            .insert(to_download.name.clone(), is_checked);
                     }
 
                     delete_list.set_damage(true);
@@ -496,6 +494,24 @@ async fn main() {
                     let mut app_state_locked = app_state.write().await;
                     let modname = download_list.text(download_list.value()).unwrap();
                     let is_checked = download_list.checked(download_list.value());
+
+                    let remote_mods = &app_state_locked.branch_info.as_ref().unwrap().mods;
+
+                    // TODO: Should 'mods' be a hashmap instead of vec?
+                    // INFO: if item gets unchecked but not supposed to (aka it's required) then
+                    // give error and recheck the item
+                    if !is_checked
+                        && !remote_mods
+                            .iter()
+                            .find(|&e| e.name == modname)
+                            .unwrap()
+                            .is_optional
+                    {
+                        download_list.set_checked(download_list.value());
+                        fltk_tx.send(Events::Alert(String::from("Cannot uncheck required mod!")));
+                        continue;
+                    }
+
                     *app_state_locked
                         .to_download_names
                         .get_mut(&modname)

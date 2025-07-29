@@ -13,11 +13,12 @@ A simple tool for downloading necessary mods from [my custom host webserver](htt
   - [ ] text aligment
   - [ ] config file path
 - [ ] grey out required mods
-- [ ] optional mods
+- [X] optional mods
 - [ ] checking version changes (must download/delete)
 - [ ] saving uncheked to_delete mods to keep file + load them
 - [ ] profiles
 - [ ] about dialog
+- [ ] translations
 
 ## FAQ
 ### For who is this tool?

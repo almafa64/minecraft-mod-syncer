@@ -9,22 +9,11 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use zip::ZipArchive;
 
-use crate::api;
+use crate::api::{self, Mod};
 use crate::{AppState, Events};
 
 pub type ModNames = Vec<String>;
-
-/*pub fn get_app_state() -> AppState {
-    AppState {
-        branch_name: None,
-        server_api_address: None,
-        server_main_address: None,
-        mods_path: None,
-        branch_info: None,
-        to_delete_names: HashMap::new(),
-        to_download_names: HashMap::new(),
-    }
-}*/
+pub type Mods = Vec<Mod>;
 
 // INFO: this doesnt checks if folder exists
 pub fn get_os_default_mods_folder() -> Option<PathBuf> {
@@ -124,22 +113,21 @@ pub fn get_local_mods(mod_dir_path: &Path) -> Result<ModNames> {
     Ok(mod_names)
 }
 
-pub fn get_mods_to_download(remote_mods: &ModNames, local_mods: &ModNames) -> ModNames {
-    let local_mods_set: HashSet<&String> = HashSet::from_iter(local_mods);
-
+pub fn get_mods_to_download(remote_mods: &Mods, local_mods: &ModNames) -> Mods {
     remote_mods
         .iter()
-        .filter(|x| !local_mods_set.contains(x))
+        .filter(|e| !local_mods.contains(&e.name))
         .cloned()
         .collect()
 }
 
-pub fn get_mods_to_delete(remote_mods: &ModNames, local_mods: &ModNames) -> ModNames {
-    let remote_mods_set: HashSet<&String> = HashSet::from_iter(remote_mods);
+pub fn get_mods_to_delete(remote_mods: &Mods, local_mods: &ModNames) -> ModNames {
+    let remote_mod_names: HashSet<&String> =
+        HashSet::from_iter(remote_mods.iter().map(|e| &e.name));
 
     local_mods
         .iter()
-        .filter(|x| !remote_mods_set.contains(x))
+        .filter(|e| !remote_mod_names.contains(e))
         .cloned()
         .collect()
 }
