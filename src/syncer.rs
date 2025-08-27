@@ -222,9 +222,10 @@ pub async fn download_files(
                     });
                 }
 
+                file_out.shutdown().await.unwrap();
+
                 if stopped {
                     fltk_tx.send(Events::DownloadStop);
-                    file_out.shutdown().await.unwrap();
                     tokio::fs::remove_file(path).await.unwrap();
                     return;
                 }
@@ -431,8 +432,9 @@ pub async fn unzip_mod_zip(
             }
         }
 
+        out_buf.shutdown().await.unwrap();
+
         if stopped {
-            out_buf.shutdown().await.unwrap();
             tokio::fs::remove_file(outpath).await.unwrap();
             break;
         }
