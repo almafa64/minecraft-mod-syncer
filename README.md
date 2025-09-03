@@ -1,6 +1,6 @@
 # Minecraft Mod Syncer
 
-A simple tool for downloading necessary mods from [my custom host webserver](https://github.com/almafa64/minecraft-mods-page) and deletes unneeded mods from local.
+A simple tool for downloading necessary mods from [my custom host webserver](https://github.com/almafa64/minecraft-mod-hoster) and deletes unneeded mods from local.
 
 ## Todos
 - [X] download zip + unzip it
