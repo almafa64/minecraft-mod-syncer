@@ -237,6 +237,11 @@ async fn main() {
     download_flex.fixed(&total_progress, 30);
     download_flex.fixed(&cancel_button, 30);
 
+    download_wind.set_trigger(enums::CallbackTrigger::Closed);
+    download_wind.set_callback(move |_| {
+        cancel_button.do_callback();
+    });
+
     download_flex.end();
     download_wind.make_modal(true);
     download_wind.end();
@@ -438,7 +443,7 @@ async fn main() {
                         let total_count = mcmods.len();
 
                         // INFO: if zip is not present, download all files separately
-                        let zip_size = if zip_file.present {
+                        let zip_size = if zip_file.is_present {
                             zip_file.size
                         } else {
                             u64::max_value()

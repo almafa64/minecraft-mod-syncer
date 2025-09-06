@@ -2,9 +2,9 @@ use reqwest::{Response, Result};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ZipFile {
-    pub name: String,
     pub size: u64,
-    pub present: bool,
+    pub is_present: bool,
+    pub mod_date: f64,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -42,7 +42,7 @@ pub async fn get_branch_names(api_address: &str) -> Result<BranchNames> {
 }
 
 pub async fn get_mods_in_branch(api_address: &str, branch_name: &str) -> Result<BranchInfo> {
-    let path = format!("{}{}/mods/{}?v=3", HTTP_TYPE, api_address, branch_name);
+    let path = format!("{}{}/mods/{}", HTTP_TYPE, api_address, branch_name);
     let res = reqwest::get(path).await?.json::<BranchInfo>().await?;
 
     Ok(res)
