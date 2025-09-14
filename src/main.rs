@@ -351,7 +351,10 @@ async fn main() {
                     });
                 }
                 Events::ModsResult(branch_info) => {
-                    let mut app_state_locked = app_state.write().await;
+                    // INFO: dont let this event run multiple times at once
+                    let app_state_write_access = app_state.try_write();
+                    if app_state_write_access.is_err() { continue; }
+                    let mut app_state_locked = app_state_write_access.unwrap();
 
                     app_state_locked.branch_info = Some(branch_info);
 
