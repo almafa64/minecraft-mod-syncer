@@ -359,6 +359,12 @@ async fn main() {
 					}
 					let mut app_state_locked = app_state_write_access.unwrap();
 
+					delete_list.clear();
+					download_list.clear();
+
+					app_state_locked.to_delete_names.clear();
+					app_state_locked.to_download_names.clear();
+
 					app_state_locked.branch_info = Some(branch_info);
 
 					let mods_pathbuf = match app_state_locked.mods_path.as_ref() {
