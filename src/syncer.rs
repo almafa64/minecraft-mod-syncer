@@ -51,36 +51,6 @@ pub fn try_get_mods_folder() -> Option<PathBuf> {
 	get_os_default_mods_folder().filter(|v| is_mods_folder(v))
 }
 
-pub fn get_keep_mods_file() -> File {
-	let keep_mods_file_path = dirs::config_dir()
-		.unwrap()
-		.join("minecraft-mod-syncer")
-		.join("keep_mods.txt");
-
-	std::fs::create_dir_all(keep_mods_file_path.parent().unwrap()).unwrap();
-	File::options()
-		.read(true)
-		.append(true)
-		.create(true)
-		.open(keep_mods_file_path)
-		.unwrap()
-}
-
-pub fn get_last_session_file() -> File {
-	let last_session_file_path = dirs::config_dir()
-		.unwrap()
-		.join("minecraft-mod-syncer")
-		.join("last_session.txt");
-
-	std::fs::create_dir_all(last_session_file_path.parent().unwrap()).unwrap();
-	File::options()
-		.read(true)
-		.append(true)
-		.create(true)
-		.open(last_session_file_path)
-		.unwrap()
-}
-
 pub fn get_keep_mods(keep_mods_file: &File) -> Result<ModNames> {
 	let keep_mod_names: ModNames = BufReader::new(keep_mods_file)
 		.lines()

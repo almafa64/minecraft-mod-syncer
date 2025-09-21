@@ -99,14 +99,9 @@ lazy_static! {
 async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
 
-	let keep_mods_file = syncer::get_keep_mods_file();
-	let last_session_file = syncer::get_last_session_file();
-
-	println!("{:?}", syncer::get_keep_mods(&keep_mods_file));
-
 	let app = app::App::default().with_scheme(app::Scheme::Gtk);
 
-    // ----- Main window section  -----
+	// ----- Main window section  -----
 
 	let mut main_wind = window::Window::default()
 		.with_size(1000, 700)
@@ -248,7 +243,7 @@ async fn main() {
 
 	main_wind.show();
 
-    // ----- Download dialog section  -----
+	// ----- Download dialog section  -----
 
 	let mut download_wind = window::Window::default()
 		.with_size(400, 250)
@@ -298,7 +293,7 @@ async fn main() {
 	download_wind.make_modal(true);
 	download_wind.end();
 
-    // ----- About dialog section  -----
+	// ----- About dialog section  -----
 
 	let mut about_win = window::Window::default()
 		.with_size(500, 100)
@@ -323,7 +318,7 @@ async fn main() {
 		.with_label(&REPOSITORY)
 		.with_align(enums::Align::Left | enums::Align::Inside);
 
-    link_button.clear_visible_focus();
+	link_button.clear_visible_focus();
 	link_button.set_frame(enums::FrameType::NoBox);
 	link_button.set_label_color(enums::Color::Blue);
 	link_button.set_label_font(enums::Font::HelveticaItalic);
@@ -331,7 +326,7 @@ async fn main() {
 		fltk::utils::open_uri(&REPOSITORY).unwrap();
 	});
 
-    link_flex.fixed(&link_label, link_label.measure_label().0);
+	link_flex.fixed(&link_label, link_label.measure_label().0);
 	link_flex.end();
 
 	about_flex.set_spacing(10);
@@ -340,7 +335,7 @@ async fn main() {
 	about_flex.end();
 	about_win.end();
 
-    // ----- Event handling section  -----
+	// ----- Event handling section  -----
 
 	while app.wait() {
 		if let Some(val) = fltk_rx.recv() {
