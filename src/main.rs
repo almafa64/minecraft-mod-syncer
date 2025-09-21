@@ -79,7 +79,16 @@ pub enum Events {
 	},
 	DownloadStop,
 	DeleteMods,
+
+	// Menu events
+	MenuSettings,
+	MenuAbout,
+	MenuHelp,
+	MenuProfile,
 }
+
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const REPOSITORY: &'static str = env!("CARGO_PKG_REPOSITORY");
 
 // INFO: debug only
 lazy_static! {
@@ -96,12 +105,23 @@ async fn main() {
 	println!("{:?}", syncer::get_keep_mods(&keep_mods_file));
 
 	let app = app::App::default().with_scheme(app::Scheme::Gtk);
+
+    // ----- Main window section  -----
+
 	let mut main_wind = window::Window::default()
 		.with_size(1000, 700)
 		.with_label("Minecraft mod syncer");
 	main_wind.make_resizable(true);
 
 	let mut flex = group::Flex::default().size_of_parent().column();
+	let mut bar = menu::MenuBar::default();
+	bar.set_frame(enums::FrameType::ThinUpBox);
+	flex.fixed(&bar, 20);
+	flex.end();
+
+	let mut flex = group::Flex::default().size_of_parent().column();
+
+	flex.fixed(&frame::Frame::default(), 10);
 
 	let mut input_flex = group::Flex::default();
 	let server_ip_label = frame::Frame::default()
@@ -155,6 +175,7 @@ async fn main() {
 	input_flex.fixed(&ip_ok_button, 60);
 	mod_dir_flex.fixed(&mods_path_button, 60);
 
+	flex.fixed(&bar, 30);
 	flex.fixed(&input_flex, 30);
 	flex.fixed(&branch_flex, 30);
 	flex.fixed(&mod_dir_flex, 30);
@@ -189,6 +210,34 @@ async fn main() {
 	download_list.set_trigger(enums::CallbackTrigger::Changed);
 	delete_list.set_trigger(enums::CallbackTrigger::Changed);
 
+	bar.add_emit(
+		"&File/Preferences",
+		enums::Shortcut::None,
+		menu::MenuFlag::Normal,
+		fltk_tx,
+		Events::MenuSettings,
+	);
+	bar.add_emit(
+		"&Help/About",
+		enums::Shortcut::None,
+		menu::MenuFlag::Normal,
+		fltk_tx,
+		Events::MenuAbout,
+	);
+	bar.add_emit(
+		"&Help/Help",
+		enums::Shortcut::None,
+		menu::MenuFlag::Normal,
+		fltk_tx,
+		Events::MenuHelp,
+	);
+	bar.add_emit(
+		"&File/Profiles",
+		enums::Shortcut::None,
+		menu::MenuFlag::Normal,
+		fltk_tx,
+		Events::MenuProfile,
+	);
 
 	ip_ok_button.do_callback();
 
@@ -198,6 +247,8 @@ async fn main() {
 	}
 
 	main_wind.show();
+
+    // ----- Download dialog section  -----
 
 	let mut download_wind = window::Window::default()
 		.with_size(400, 250)
@@ -246,6 +297,50 @@ async fn main() {
 	download_flex.end();
 	download_wind.make_modal(true);
 	download_wind.end();
+
+    // ----- About dialog section  -----
+
+	let mut about_win = window::Window::default()
+		.with_size(500, 100)
+		.with_label("About");
+	let mut about_flex = group::Flex::default()
+		.with_type(group::FlexType::Column)
+		.size_of_parent();
+
+	frame::Frame::default()
+		.with_label(&format!("Developer: {}", env!("CARGO_PKG_AUTHORS")))
+		.with_align(enums::Align::Left | enums::Align::Inside);
+	frame::Frame::default()
+		.with_label(&format!("Version: {}", VERSION))
+		.with_align(enums::Align::Left | enums::Align::Inside);
+
+	let mut link_flex = group::Flex::default().with_type(group::FlexType::Row);
+
+	let link_label = frame::Frame::default()
+		.with_label("Repository:")
+		.with_align(enums::Align::Left | enums::Align::Inside);
+	let mut link_button = button::Button::default()
+		.with_label(&REPOSITORY)
+		.with_align(enums::Align::Left | enums::Align::Inside);
+
+    link_button.clear_visible_focus();
+	link_button.set_frame(enums::FrameType::NoBox);
+	link_button.set_label_color(enums::Color::Blue);
+	link_button.set_label_font(enums::Font::HelveticaItalic);
+	link_button.set_callback(|_| {
+		fltk::utils::open_uri(&REPOSITORY).unwrap();
+	});
+
+    link_flex.fixed(&link_label, link_label.measure_label().0);
+	link_flex.end();
+
+	about_flex.set_spacing(10);
+	about_flex.set_margin(20);
+
+	about_flex.end();
+	about_win.end();
+
+    // ----- Event handling section  -----
 
 	while app.wait() {
 		if let Some(val) = fltk_rx.recv() {
@@ -609,7 +704,9 @@ async fn main() {
 
 				// Menu events
 				Events::MenuHelp => {}
-				Events::MenuAbout => {}
+				Events::MenuAbout => {
+					about_win.show();
+				}
 				Events::MenuSettings => {}
 				Events::MenuProfile => {}
 			}
