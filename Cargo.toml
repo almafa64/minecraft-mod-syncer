@@ -9,7 +9,7 @@ edition = "2024"
 fltk = { version = "1.5.9", features = ['no-pango'] }
 dirs = "6.0.0"
 reqwest = { version = "0.12.15", features = ['json', 'stream'] }
-tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "fs"] }
+tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "fs", "sync", "io-util"] }
 serde_json = "1.0.140"
 serde = { version = "1.0.219", features = ["derive"]}
 lazy_static = "1.5.0"

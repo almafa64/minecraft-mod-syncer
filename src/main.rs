@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 use crate::{api::BranchInfo, syncer::get_os_default_mods_folder};
 
 mod api;
+mod profiles;
 mod syncer;
 mod utils;
 
@@ -98,6 +99,23 @@ lazy_static! {
 #[tokio::main]
 async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
+
+	profiles::load_profiles().await;
+	if !profiles::profile_exists("default").await {
+		profiles::new_profile(
+			"default",
+			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", ""),
+		)
+		.await;
+		profiles::save_profiles().await;
+	}
+
+	for name in profiles::get_profile_names().await {
+		profiles::with_profile(&name, |v| {
+			println!("{:?}", v);
+		})
+		.await;
+	}
 
 	let app = app::App::default().with_scheme(app::Scheme::Gtk);
 
