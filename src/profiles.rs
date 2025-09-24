@@ -5,6 +5,7 @@ use std::{
 	sync::{Arc, OnceLock},
 };
 
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tokio::{
 	fs::File,
@@ -62,19 +63,14 @@ async fn get_profiles_file() -> Arc<Mutex<File>> {
 		.clone()
 }
 
-fn get_profiles() -> Arc<Mutex<HashMap<String, Profile>>> {
-	static PROFILES: OnceLock<Arc<Mutex<HashMap<String, Profile>>>> = OnceLock::new();
-	PROFILES
-		.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
-		.clone()
+fn get_profiles() -> Arc<DashMap<String, Profile>> {
+	static PROFILES: OnceLock<Arc<DashMap<String, Profile>>> = OnceLock::new();
+	PROFILES.get_or_init(|| Arc::new(DashMap::new())).clone()
 }
 
 pub async fn load_profiles() {
 	let file = get_profiles_file().await;
 	let mut file_locked = file.lock().await;
-
-	let profiles = get_profiles();
-	let mut profiles_locked = profiles.lock().await;
 
 	let mut buf = String::new();
 	file_locked
@@ -90,8 +86,10 @@ pub async fn load_profiles() {
 	let read_profiles: HashMap<String, Profile> =
 		serde_json::from_str(&buf).expect("Failed to serialize profiles file");
 
+	let profiles = get_profiles();
+
 	for (k, v) in read_profiles {
-		profiles_locked.insert(k, v);
+		profiles.insert(k, v);
 	}
 }
 
@@ -100,10 +98,8 @@ pub async fn save_profiles() {
 	let mut file_locked = file.lock().await;
 
 	let profiles = get_profiles();
-	let profiles_locked = profiles.lock().await;
 
-	let json =
-		serde_json::to_string(&*profiles_locked).expect("Failed to convert profiles to json");
+	let json = serde_json::to_string(&*profiles).expect("Failed to convert profiles to json");
 
 	file_locked
 		.set_len(0)
@@ -125,33 +121,28 @@ pub async fn save_profiles() {
 		.expect("Failed to flush profiles file");
 }
 
-pub async fn with_profile<F, R>(name: &str, f: F) -> Option<R>
+pub fn with_profile<F, R>(name: &str, f: F) -> Option<R>
 where
 	F: FnOnce(&mut Profile) -> R,
 {
-	let profiles = get_profiles();
-	profiles.lock().await.get_mut(name).map(f)
+	get_profiles().get_mut(name).map(|mut v| f(v.value_mut()))
 }
 
-pub async fn new_profile<N>(name: N, profile: Profile)
+pub fn new_profile<N>(name: N, profile: Profile)
 where
 	N: Into<String>,
 {
-	let profiles = get_profiles();
-	profiles.lock().await.insert(name.into(), profile);
+	get_profiles().insert(name.into(), profile);
 }
 
-pub async fn delete_profile(name: &str) {
-	let profiles = get_profiles();
-	profiles.lock().await.remove(name);
+pub fn delete_profile(name: &str) {
+	get_profiles().remove(name);
 }
 
-pub async fn profile_exists(name: &str) -> bool {
-	let profiles = get_profiles();
-	profiles.lock().await.get(name).is_some()
+pub fn profile_exists(name: &str) -> bool {
+	get_profiles().get(name).is_some()
 }
 
-pub async fn get_profile_names() -> Vec<String> {
-	let profiles = get_profiles();
-	profiles.lock().await.keys().map(String::clone).collect()
+pub fn get_profile_names() -> Vec<String> {
+	get_profiles().iter().map(|v| v.key().clone()).collect()
 }

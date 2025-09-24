@@ -101,20 +101,18 @@ async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
 
 	profiles::load_profiles().await;
-	if !profiles::profile_exists("default").await {
+	if !profiles::profile_exists("default") {
 		profiles::new_profile(
 			"default",
 			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", ""),
-		)
-		.await;
+		);
 		profiles::save_profiles().await;
 	}
 
-	for name in profiles::get_profile_names().await {
+	for name in profiles::get_profile_names() {
 		profiles::with_profile(&name, |v| {
 			println!("{:?}", v);
-		})
-		.await;
+		});
 	}
 
 	let app = app::App::default().with_scheme(app::Scheme::Gtk);
