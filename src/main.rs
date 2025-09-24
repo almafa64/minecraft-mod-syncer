@@ -13,7 +13,7 @@ use tokio::sync::RwLock;
 
 use tokio::sync::Mutex;
 
-use crate::{api::BranchInfo, syncer::get_os_default_mods_folder};
+use crate::api::BranchInfo;
 
 mod api;
 mod profiles;
@@ -29,6 +29,7 @@ pub struct AppState {
 	branch_info: Option<BranchInfo>,
 	to_download_names: HashMap<String, bool>,
 	to_delete_names: HashMap<String, bool>,
+	profile_name: Option<String>,
 }
 
 impl AppState {
@@ -41,6 +42,7 @@ impl AppState {
 			branch_info: None,
 			to_delete_names: HashMap::new(),
 			to_download_names: HashMap::new(),
+			profile_name: None,
 		}
 	}
 }
@@ -85,7 +87,9 @@ pub enum Events {
 	MenuSettings,
 	MenuAbout,
 	MenuHelp,
-	MenuProfile,
+	MenuProfile(String),
+	MenuNewProfile,
+	MenuDeleteProfile,
 }
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -96,14 +100,22 @@ lazy_static! {
 	static ref LABEL_ALIGN: enums::Align = enums::Align::Left | enums::Align::Inside;
 }
 
+// TODO:
+// load in profile
+// - if profiles are in menu:
+//   - place default at bottom so divider cant disappear
+//   - place news on top somehow
+//   - show current
+// - else in choice
+
 #[tokio::main]
 async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
 
 	profiles::load_profiles().await;
-	if !profiles::profile_exists("default") {
+	if !profiles::profile_exists(profiles::DEFAULT) {
 		profiles::new_profile(
-			"default",
+			profiles::DEFAULT,
 			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", ""),
 		);
 		profiles::save_profiles().await;
@@ -111,7 +123,7 @@ async fn main() {
 
 	for name in profiles::get_profile_names() {
 		profiles::with_profile(&name, |v| {
-			println!("{:?}", v);
+			println!("{}: {:?}", name, v);
 		});
 	}
 
@@ -130,9 +142,9 @@ async fn main() {
 	main_wind.make_resizable(true);
 
 	let mut flex = group::Flex::default().size_of_parent().column();
-	let mut bar = menu::MenuBar::default();
-	bar.set_frame(enums::FrameType::ThinUpBox);
-	flex.fixed(&bar, 20);
+	let mut menubar = menu::MenuBar::default();
+	menubar.set_frame(enums::FrameType::ThinUpBox);
+	flex.fixed(&menubar, 20);
 	flex.end();
 
 	let mut flex = group::Flex::default().size_of_parent().column();
@@ -191,7 +203,7 @@ async fn main() {
 	input_flex.fixed(&ip_ok_button, 60);
 	mod_dir_flex.fixed(&mods_path_button, 60);
 
-	flex.fixed(&bar, 30);
+	flex.fixed(&menubar, 30);
 	flex.fixed(&input_flex, 30);
 	flex.fixed(&branch_flex, 30);
 	flex.fixed(&mod_dir_flex, 30);
@@ -226,35 +238,63 @@ async fn main() {
 	download_list.set_trigger(enums::CallbackTrigger::Changed);
 	delete_list.set_trigger(enums::CallbackTrigger::Changed);
 
-	bar.add_emit(
+	menubar.add_emit(
 		"&File/Preferences",
 		enums::Shortcut::None,
 		menu::MenuFlag::Normal,
 		fltk_tx,
 		Events::MenuSettings,
 	);
-	bar.add_emit(
+	menubar.add_emit(
 		"&Help/About",
 		enums::Shortcut::None,
 		menu::MenuFlag::Normal,
 		fltk_tx,
 		Events::MenuAbout,
 	);
-	bar.add_emit(
+	menubar.add_emit(
 		"&Help/Help",
 		enums::Shortcut::None,
 		menu::MenuFlag::Normal,
 		fltk_tx,
 		Events::MenuHelp,
 	);
-	bar.add_emit(
-		"&File/Profiles",
+	{
+		let mut profile_names = profiles::get_profile_names();
+		profile_names.sort();
+
+		for (i, profile_name) in profile_names.iter().enumerate() {
+			menubar.add_emit(
+				&format!("&File/Profiles/{}", &profile_name),
+				enums::Shortcut::None,
+				if i == profile_names.len() - 1 {
+					menu::MenuFlag::MenuDivider
+				} else {
+					menu::MenuFlag::Normal
+				},
+				fltk_tx,
+				Events::MenuProfile(String::from(profile_name)),
+			);
+		}
+	}
+	menubar.add_emit(
+		"&File/Profiles/New",
 		enums::Shortcut::None,
 		menu::MenuFlag::Normal,
 		fltk_tx,
-		Events::MenuProfile,
+		Events::MenuNewProfile,
+	);
+	menubar.add_emit(
+		"&File/Profiles/Delete",
+		enums::Shortcut::None,
+		menu::MenuFlag::Normal,
+		fltk_tx,
+		Events::MenuDeleteProfile,
 	);
 
+	fltk_tx.send(Events::MenuProfile(profiles::get_last_profile_name().await));
+
+	// TODO: tmp until profiles
 	ip_ok_button.do_callback();
 
 	if let Some(mod_folder) = syncer::try_get_mods_folder() {
@@ -534,7 +574,7 @@ async fn main() {
 							None => {
 								fltk_tx.send(Events::Alert(format!(
 									"Please set 'mods' folder path (e.g. {})!",
-									get_os_default_mods_folder()
+									syncer::get_os_default_mods_folder()
 										.as_ref()
 										.and_then(|e| e.to_str())
 										.unwrap_or("whats your platform?")
@@ -724,7 +764,90 @@ async fn main() {
 					about_win.show();
 				}
 				Events::MenuSettings => {}
-				Events::MenuProfile => {}
+				Events::MenuProfile(name) => {
+					let mut app_state_locked = app_state.write().await;
+
+					app_state_locked.profile_name = Some(name);
+					/*
+					profiles::with_profile(&app_state_locked.profile_name.as_ref().unwrap(), move |v| {
+						server_ip_input.set_value(&v.address);
+						mods_path_input.set_value(&v.mods_path);
+						let i = branch_chooser.find_index(&v.branch);
+						if i >= 0 {
+							branch_chooser.set_value(i);
+						}
+						server_ip_input.do_callback();
+					});*/
+				}
+				Events::MenuNewProfile => {
+					let mut app_state_locked = app_state.write().await;
+
+					if let Some(name) = dialog::input_default("Name for new profile:", "")
+						.map(|v| String::from(v.trim()))
+					{
+						if profiles::profile_exists(&name) || name.len() == 0 {
+							continue;
+						}
+
+						let branch_name =
+							app_state_locked.branch_name.as_deref().unwrap_or_default();
+						let download_address = app_state_locked
+							.server_main_address
+							.as_deref()
+							.unwrap_or_default();
+						let mods_pathbuf = app_state_locked
+							.mods_path
+							.as_deref()
+							.unwrap_or(Path::new(""));
+
+						let profile = profiles::Profile::new(
+							download_address,
+							branch_name,
+							mods_pathbuf.to_str().unwrap(),
+						);
+
+						profiles::new_profile(&name, profile);
+
+						menubar.insert_emit(
+							0,
+							&format!("&File/Profiles/{}", &name),
+							enums::Shortcut::None,
+							menu::MenuFlag::Normal,
+							fltk_tx,
+							Events::MenuProfile(name.clone()),
+						);
+
+						app_state_locked.profile_name = Some(name);
+
+						profiles::save_profiles().await;
+					}
+				}
+				Events::MenuDeleteProfile => {
+					let mut app_state_locked = app_state.write().await;
+
+					if let Some(name) = dialog::input_default("Name of profile to delete:", "")
+						.map(|v| String::from(v.trim()))
+					{
+						if !profiles::profile_exists(&name) || name == profiles::DEFAULT {
+							continue;
+						}
+
+						profiles::delete_profile(&name);
+
+						let i = menubar.find_index(&format!("&File/Profiles/{}", &name));
+						menubar.remove(i);
+
+						if app_state_locked
+							.profile_name
+							.as_ref()
+							.is_some_and(|v| *v == name)
+						{
+							app_state_locked.profile_name = Some(String::from(profiles::DEFAULT));
+						}
+
+						profiles::save_profiles().await;
+					}
+				}
 			}
 		}
 	}

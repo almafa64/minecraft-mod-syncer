@@ -15,10 +15,10 @@ use tokio::{
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Profile {
-	address: String,
-	branch: String,
-	mods_path: String,
-	keep_mod_names: Vec<String>,
+	pub address: String,
+	pub branch: String,
+	pub mods_path: String,
+	pub keep_mod_names: Vec<String>,
 }
 
 impl Profile {
@@ -36,6 +36,8 @@ impl Profile {
 		}
 	}
 }
+
+pub const DEFAULT: &'static str = "default";
 
 async fn get_profiles_file() -> Arc<Mutex<File>> {
 	static PROFILES_FILE: OnceCell<Arc<Mutex<File>>> = OnceCell::const_new();
@@ -68,6 +70,16 @@ fn get_profiles() -> Arc<DashMap<String, Profile>> {
 	PROFILES.get_or_init(|| Arc::new(DashMap::new())).clone()
 }
 
+// INFO: not longer used, maybe handy in future
+fn validate_profile_name(_name: &str) -> bool {
+	true
+}
+
+// TODO: not implemented yet
+pub async fn get_last_profile_name() -> String {
+	String::from("default")
+}
+
 pub async fn load_profiles() {
 	let file = get_profiles_file().await;
 	let mut file_locked = file.lock().await;
@@ -89,6 +101,9 @@ pub async fn load_profiles() {
 	let profiles = get_profiles();
 
 	for (k, v) in read_profiles {
+		if !validate_profile_name(&k) {
+			continue;
+		}
 		profiles.insert(k, v);
 	}
 }
@@ -132,15 +147,22 @@ pub fn new_profile<N>(name: N, profile: Profile)
 where
 	N: Into<String>,
 {
-	get_profiles().insert(name.into(), profile);
+	let name = name.into();
+	if !validate_profile_name(&name) {
+		return;
+	}
+	get_profiles().insert(name, profile);
 }
 
 pub fn delete_profile(name: &str) {
+	if !validate_profile_name(&name) {
+		return;
+	}
 	get_profiles().remove(name);
 }
 
 pub fn profile_exists(name: &str) -> bool {
-	get_profiles().get(name).is_some()
+	get_profiles().contains_key(name)
 }
 
 pub fn get_profile_names() -> Vec<String> {
