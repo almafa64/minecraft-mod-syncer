@@ -115,7 +115,12 @@ async fn main() {
 		});
 	}
 
-	let app = app::App::default().with_scheme(app::Scheme::Gtk);
+	//let app = app::App::default().with_scheme(app::Scheme::Gtk);
+	let app = app::App::default();
+	let widget_theme = fltk_theme::WidgetTheme::new(fltk_theme::ThemeType::Classic);
+	widget_theme.apply();
+	let widget_scheme = fltk_theme::WidgetScheme::new(fltk_theme::SchemeType::Fleet1);
+	widget_scheme.apply();
 
 	// ----- Main window section  -----
 
