@@ -37,6 +37,58 @@ impl Profile {
 	}
 }
 
+pub struct ProfilesMap {
+	profiles: DashMap<String, Profile>,
+}
+
+impl ProfilesMap {
+	pub fn new() -> Self {
+		ProfilesMap {
+			profiles: DashMap::new(),
+		}
+	}
+
+	pub fn get_profile(
+		&self,
+		name: &str,
+	) -> Option<dashmap::mapref::one::Ref<'_, String, Profile>> {
+		self.profiles.get(name)
+	}
+
+	pub fn get_mut_profile(
+		&self,
+		name: &str,
+	) -> Option<dashmap::mapref::one::RefMut<'_, String, Profile>> {
+		self.profiles.get_mut(name)
+	}
+
+	pub fn new_profile<N>(&self, name: N, profile: Profile)
+	where
+		N: Into<String>,
+	{
+		let name = name.into();
+		if !validate_profile_name(&name) {
+			return;
+		}
+		self.profiles.insert(name, profile);
+	}
+
+	pub fn delete_profile(&self, name: &str) {
+		if !validate_profile_name(&name) {
+			return;
+		}
+		self.profiles.remove(name);
+	}
+
+	pub fn profile_exists(&self, name: &str) -> bool {
+		self.profiles.contains_key(name)
+	}
+
+	pub fn get_profile_names(&self) -> Vec<String> {
+		self.profiles.iter().map(|v| v.key().clone()).collect()
+	}
+}
+
 pub const DEFAULT: &'static str = "default";
 
 async fn get_profiles_file() -> Arc<Mutex<File>> {
@@ -65,11 +117,6 @@ async fn get_profiles_file() -> Arc<Mutex<File>> {
 		.clone()
 }
 
-fn get_profiles() -> Arc<DashMap<String, Profile>> {
-	static PROFILES: OnceLock<Arc<DashMap<String, Profile>>> = OnceLock::new();
-	PROFILES.get_or_init(|| Arc::new(DashMap::new())).clone()
-}
-
 // INFO: not longer used, maybe handy in future
 fn validate_profile_name(_name: &str) -> bool {
 	true
@@ -77,10 +124,10 @@ fn validate_profile_name(_name: &str) -> bool {
 
 // TODO: not implemented yet
 pub async fn get_last_profile_name() -> String {
-	String::from("default")
+	String::from(DEFAULT)
 }
 
-pub async fn load_profiles() {
+pub async fn load_profiles() -> ProfilesMap {
 	let file = get_profiles_file().await;
 	let mut file_locked = file.lock().await;
 
@@ -98,23 +145,21 @@ pub async fn load_profiles() {
 	let read_profiles: HashMap<String, Profile> =
 		serde_json::from_str(&buf).expect("Failed to serialize profiles file");
 
-	let profiles = get_profiles();
+	let profiles_map = ProfilesMap::new();
 
 	for (k, v) in read_profiles {
-		if !validate_profile_name(&k) {
-			continue;
-		}
-		profiles.insert(k, v);
+		profiles_map.new_profile(k, v);
 	}
+
+	profiles_map
 }
 
-pub async fn save_profiles() {
+pub async fn save_profiles(profiles_map: &ProfilesMap) {
 	let file = get_profiles_file().await;
 	let mut file_locked = file.lock().await;
 
-	let profiles = get_profiles();
-
-	let json = serde_json::to_string(&*profiles).expect("Failed to convert profiles to json");
+	let json =
+		serde_json::to_string(&profiles_map.profiles).expect("Failed to convert profiles to json");
 
 	file_locked
 		.set_len(0)
@@ -134,37 +179,4 @@ pub async fn save_profiles() {
 		.flush()
 		.await
 		.expect("Failed to flush profiles file");
-}
-
-pub fn with_profile<F, R>(name: &str, f: F) -> Option<R>
-where
-	F: FnOnce(&mut Profile) -> R,
-{
-	get_profiles().get_mut(name).map(|mut v| f(v.value_mut()))
-}
-
-pub fn new_profile<N>(name: N, profile: Profile)
-where
-	N: Into<String>,
-{
-	let name = name.into();
-	if !validate_profile_name(&name) {
-		return;
-	}
-	get_profiles().insert(name, profile);
-}
-
-pub fn delete_profile(name: &str) {
-	if !validate_profile_name(&name) {
-		return;
-	}
-	get_profiles().remove(name);
-}
-
-pub fn profile_exists(name: &str) -> bool {
-	get_profiles().contains_key(name)
-}
-
-pub fn get_profile_names() -> Vec<String> {
-	get_profiles().iter().map(|v| v.key().clone()).collect()
 }

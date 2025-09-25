@@ -89,6 +89,7 @@ pub enum Events {
 	MenuHelp,
 	MenuProfile(String),
 	MenuNewProfile,
+	MenuSaveProfile(String),
 	MenuDeleteProfile,
 }
 
@@ -101,30 +102,24 @@ lazy_static! {
 }
 
 // TODO:
-// load in profile
-// - if profiles are in menu:
-//   - place default at bottom so divider cant disappear
-//   - place news on top somehow
-//   - show current
-// - else in choice
+// fix clearing mods folder because of profile load
+// set every widget value in app_state even if not good (so profiles can save it)
+// Possible changes in profiles
+//   - dont revert to default when deleting selected profile
+//     - in this state there shouldnt be any red text
+//     - pressing save should make popup to create new profile
 
 #[tokio::main]
 async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
 
-	profiles::load_profiles().await;
-	if !profiles::profile_exists(profiles::DEFAULT) {
-		profiles::new_profile(
+	let profiles_map = profiles::load_profiles().await;
+	if !profiles_map.profile_exists(profiles::DEFAULT) {
+		profiles_map.new_profile(
 			profiles::DEFAULT,
 			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", ""),
 		);
-		profiles::save_profiles().await;
-	}
-
-	for name in profiles::get_profile_names() {
-		profiles::with_profile(&name, |v| {
-			println!("{}: {:?}", name, v);
-		});
+		profiles::save_profiles(&profiles_map).await;
 	}
 
 	//let app = app::App::default().with_scheme(app::Scheme::Gtk);
@@ -217,9 +212,6 @@ async fn main() {
 
 	main_wind.end();
 
-	// INFO: debug only
-	server_ip_input.set_value("themoonbase.dnet.hu/minecraft");
-
 	let (fltk_tx, fltk_rx) = app::channel::<Events>();
 	let (progress_stop_tx, progress_stop_rx) = tokio::sync::mpsc::channel::<bool>(1);
 	let progress_stop_rx = Arc::new(Mutex::new(progress_stop_rx));
@@ -237,6 +229,16 @@ async fn main() {
 	mods_path_input.set_trigger(enums::CallbackTrigger::EnterKeyAlways);
 	download_list.set_trigger(enums::CallbackTrigger::Changed);
 	delete_list.set_trigger(enums::CallbackTrigger::Changed);
+
+	// TODO: dont use sleep
+	main_wind.set_callback(move |_| {
+		fltk_tx.send(Events::MenuSaveProfile(String::from("")));
+		tokio::spawn(async {
+			tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+			app::awake_callback(|| app::quit());
+		});
+	});
+	main_wind.set_trigger(enums::CallbackTrigger::Closed);
 
 	menubar.add_emit(
 		"&File/Preferences",
@@ -260,29 +262,43 @@ async fn main() {
 		Events::MenuHelp,
 	);
 	{
-		let mut profile_names = profiles::get_profile_names();
+		let mut profile_names = profiles_map.get_profile_names();
 		profile_names.sort();
 
-		for (i, profile_name) in profile_names.iter().enumerate() {
+		for profile_name in profile_names {
+			if profile_name == profiles::DEFAULT {
+				continue;
+			}
+
 			menubar.add_emit(
 				&format!("&File/Profiles/{}", &profile_name),
 				enums::Shortcut::None,
-				if i == profile_names.len() - 1 {
-					menu::MenuFlag::MenuDivider
-				} else {
-					menu::MenuFlag::Normal
-				},
+				menu::MenuFlag::Normal,
 				fltk_tx,
 				Events::MenuProfile(String::from(profile_name)),
 			);
 		}
 	}
 	menubar.add_emit(
+		&format!("&File/Profiles/{}", profiles::DEFAULT),
+		enums::Shortcut::None,
+		menu::MenuFlag::MenuDivider,
+		fltk_tx,
+		Events::MenuProfile(String::from(profiles::DEFAULT)),
+	);
+	menubar.add_emit(
 		"&File/Profiles/New",
 		enums::Shortcut::None,
 		menu::MenuFlag::Normal,
 		fltk_tx,
 		Events::MenuNewProfile,
+	);
+	menubar.add_emit(
+		"&File/Profiles/Save",
+		enums::Shortcut::None,
+		menu::MenuFlag::Normal,
+		fltk_tx,
+		Events::MenuSaveProfile(String::from("")),
 	);
 	menubar.add_emit(
 		"&File/Profiles/Delete",
@@ -293,9 +309,6 @@ async fn main() {
 	);
 
 	fltk_tx.send(Events::MenuProfile(profiles::get_last_profile_name().await));
-
-	// TODO: tmp until profiles
-	ip_ok_button.do_callback();
 
 	if let Some(mod_folder) = syncer::try_get_mods_folder() {
 		mods_path_input.set_value(mod_folder.to_str().unwrap_or(""));
@@ -767,86 +780,153 @@ async fn main() {
 				Events::MenuProfile(name) => {
 					let mut app_state_locked = app_state.write().await;
 
-					app_state_locked.profile_name = Some(name);
-					/*
-					profiles::with_profile(&app_state_locked.profile_name.as_ref().unwrap(), move |v| {
-						server_ip_input.set_value(&v.address);
-						mods_path_input.set_value(&v.mods_path);
-						let i = branch_chooser.find_index(&v.branch);
-						if i >= 0 {
-							branch_chooser.set_value(i);
+					if let Some(prev_profile_name) = app_state_locked.profile_name.as_ref() {
+						if let Some(mut prev_item) =
+							menubar.find_item(&format!("&File/Profiles/{}", prev_profile_name))
+						{
+							prev_item.set_label_color(enums::Color::Black);
 						}
-						server_ip_input.do_callback();
-					});*/
+					}
+
+					let mut item = menubar
+						.find_item(&format!("&File/Profiles/{}", &name))
+						.unwrap();
+					item.set_label_color(enums::Color::Red);
+
+					let profile = profiles_map.get_profile(&name);
+					let profile = profile.as_ref().unwrap().value();
+					server_ip_input.set_value(&profile.address);
+					mods_path_input.set_value(&profile.mods_path);
+					let i = branch_chooser.find_index(&profile.branch);
+					if i >= 0 {
+						branch_chooser.set_value(i);
+					}
+					server_ip_input.do_callback();
+
+					app_state_locked.profile_name = Some(name);
 				}
 				Events::MenuNewProfile => {
 					let mut app_state_locked = app_state.write().await;
 
-					if let Some(name) = dialog::input_default("Name for new profile:", "")
-						.map(|v| String::from(v.trim()))
-					{
-						if profiles::profile_exists(&name) || name.len() == 0 {
-							continue;
-						}
+					let name = dialog::input_default("Name for new profile:", "")
+						.map(|v| String::from(v.trim()));
 
-						let branch_name =
-							app_state_locked.branch_name.as_deref().unwrap_or_default();
-						let download_address = app_state_locked
-							.server_main_address
-							.as_deref()
-							.unwrap_or_default();
-						let mods_pathbuf = app_state_locked
-							.mods_path
-							.as_deref()
-							.unwrap_or(Path::new(""));
-
-						let profile = profiles::Profile::new(
-							download_address,
-							branch_name,
-							mods_pathbuf.to_str().unwrap(),
-						);
-
-						profiles::new_profile(&name, profile);
-
-						menubar.insert_emit(
-							0,
-							&format!("&File/Profiles/{}", &name),
-							enums::Shortcut::None,
-							menu::MenuFlag::Normal,
-							fltk_tx,
-							Events::MenuProfile(name.clone()),
-						);
-
-						app_state_locked.profile_name = Some(name);
-
-						profiles::save_profiles().await;
+					if name.is_none() {
+						continue;
 					}
+
+					let name = name.unwrap();
+
+					if name.len() == 0 {
+						fltk_tx.send(Events::Alert(String::from("Name cannot be empty")));
+						continue;
+					}
+
+					if profiles_map.profile_exists(&name) {
+						fltk_tx.send(Events::Alert(format!("Profile '{}' already exists", &name)));
+						continue;
+					}
+
+					fltk_tx.send(Events::MenuSaveProfile(name.clone()));
+
+					let mut profile_menu = menubar.find_item(&format!("&File/Profiles")).unwrap();
+
+					let new_index = profile_menu.insert_emit(
+						1,
+						&name,
+						enums::Shortcut::None,
+						menu::MenuFlag::Normal,
+						fltk_tx,
+						Events::MenuProfile(name.clone()),
+					);
+
+					if let Some(prev_profile_name) = app_state_locked.profile_name.as_ref() {
+						if let Some(mut prev_item) =
+							menubar.find_item(&format!("&File/Profiles/{}", prev_profile_name))
+						{
+							prev_item.set_label_color(enums::Color::Black);
+						}
+					}
+
+					let mut item = profile_menu.at(new_index).unwrap();
+					item.set_label_color(enums::Color::Red);
+
+                    dialog::message_default(&format!("Successfully created '{}' profile", &name));
+
+					app_state_locked.profile_name = Some(name);
 				}
 				Events::MenuDeleteProfile => {
-					let mut app_state_locked = app_state.write().await;
+					let app_state_locked = app_state.read().await;
 
-					if let Some(name) = dialog::input_default("Name of profile to delete:", "")
-						.map(|v| String::from(v.trim()))
-					{
-						if !profiles::profile_exists(&name) || name == profiles::DEFAULT {
-							continue;
-						}
+					let name = dialog::input_default("Name of profile to delete:", "")
+						.map(|v| String::from(v.trim()));
 
-						profiles::delete_profile(&name);
-
-						let i = menubar.find_index(&format!("&File/Profiles/{}", &name));
-						menubar.remove(i);
-
-						if app_state_locked
-							.profile_name
-							.as_ref()
-							.is_some_and(|v| *v == name)
-						{
-							app_state_locked.profile_name = Some(String::from(profiles::DEFAULT));
-						}
-
-						profiles::save_profiles().await;
+					if name.is_none() {
+						continue;
 					}
+
+					let name = name.unwrap();
+
+					if name == profiles::DEFAULT {
+						fltk_tx.send(Events::Alert(String::from("Good try")));
+						continue;
+					}
+
+					if !profiles_map.profile_exists(&name) {
+						fltk_tx.send(Events::Alert(format!("Profile '{}' doesn't exists", &name)));
+						continue;
+					}
+
+					profiles_map.delete_profile(&name);
+
+					let i = menubar.find_index(&format!("&File/Profiles/{}", &name));
+					menubar.remove(i);
+
+					if app_state_locked
+						.profile_name
+						.as_ref()
+						.is_some_and(|v| *v == name)
+					{
+						fltk_tx.send(Events::MenuProfile(String::from(profiles::DEFAULT)));
+					}
+
+					profiles::save_profiles(&profiles_map).await;
+
+                    dialog::message_default(&format!("Successfully deleted '{}' profile", &name));
+				}
+				Events::MenuSaveProfile(name) => {
+					let app_state_locked = app_state.read().await;
+
+					let download_address = app_state_locked
+						.server_main_address
+						.as_deref()
+						.unwrap_or_default();
+					let branch_name = app_state_locked.branch_name.as_deref().unwrap_or_default();
+					let mods_pathbuf = app_state_locked
+						.mods_path
+						.as_deref()
+						.unwrap_or(Path::new(""))
+						.to_str()
+						.unwrap();
+
+					// INFO: if name is not empty, save profile as new
+					if name.len() > 0 {
+						let profile =
+							profiles::Profile::new(download_address, branch_name, mods_pathbuf);
+
+						profiles_map.new_profile(name, profile);
+					} else {
+						let mut profile = profiles_map
+							.get_mut_profile(app_state_locked.profile_name.as_ref().unwrap())
+							.unwrap();
+
+						let profile = profile.value_mut();
+						profile.address = String::from(download_address);
+						profile.branch = String::from(branch_name);
+						profile.mods_path = String::from(mods_pathbuf);
+					}
+
+					profiles::save_profiles(&profiles_map).await;
 				}
 			}
 		}
