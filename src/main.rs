@@ -102,7 +102,6 @@ lazy_static! {
 }
 
 // TODO:
-// fix clearing mods folder because of profile load
 // set every widget value in app_state even if not good (so profiles can save it)
 // Possible changes in profiles
 //   - dont revert to default when deleting selected profile
@@ -117,7 +116,7 @@ async fn main() {
 	if !profiles_map.profile_exists(profiles::DEFAULT) {
 		profiles_map.new_profile(
 			profiles::DEFAULT,
-			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", ""),
+			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", "", Vec::new()),
 		);
 		profiles::save_profiles(&profiles_map).await;
 	}
@@ -309,11 +308,6 @@ async fn main() {
 	);
 
 	fltk_tx.send(Events::MenuProfile(profiles::get_last_profile_name().await));
-
-	if let Some(mod_folder) = syncer::try_get_mods_folder() {
-		mods_path_input.set_value(mod_folder.to_str().unwrap_or(""));
-		mods_path_input.do_callback();
-	}
 
 	main_wind.show();
 
@@ -602,12 +596,12 @@ async fn main() {
 						let to_deletes: HashSet<&String> = app_state_locked
 							.to_delete_names
 							.iter()
-							.filter_map(|e| e.1.then(|| e.0))
+							.filter_map(|e| e.1.then_some(e.0))
 							.collect();
 						let to_downloads: HashSet<&String> = app_state_locked
 							.to_download_names
 							.iter()
-							.filter_map(|e| e.1.then(|| e.0))
+							.filter_map(|e| e.1.then_some(e.0))
 							.collect();
 
 						fltk_tx.send(Events::DeleteMods);
@@ -760,7 +754,7 @@ async fn main() {
 						let to_deletes: HashSet<&String> = app_state_locked
 							.to_delete_names
 							.iter()
-							.filter_map(|e| e.1.then(|| e.0))
+							.filter_map(|e| e.1.then_some(e.0))
 							.collect();
 
 						for to_delete in to_deletes {
@@ -795,9 +789,19 @@ async fn main() {
 
 					let profile = profiles_map.get_profile(&name);
 					let profile = profile.as_ref().unwrap().value();
+
 					server_ip_input.set_value(&profile.address);
-					mods_path_input.set_value(&profile.mods_path);
-					let i = branch_chooser.find_index(&profile.branch);
+					
+                    if profile.mods_path.len() == 0 {
+                        if let Some(mod_folder) = syncer::try_get_mods_folder() {
+                            mods_path_input.set_value(mod_folder.canonicalize().unwrap_or_default().to_str().unwrap_or_default().strip_prefix("\\\\?\\").unwrap_or_default());
+                        }
+                    } else {
+                        mods_path_input.set_value(&profile.mods_path);
+                    }
+                    mods_path_input.do_callback();
+
+                    let i = branch_chooser.find_index(&profile.branch);
 					if i >= 0 {
 						branch_chooser.set_value(i);
 					}
@@ -829,10 +833,10 @@ async fn main() {
 
 					fltk_tx.send(Events::MenuSaveProfile(name.clone()));
 
-					let mut profile_menu = menubar.find_item(&format!("&File/Profiles")).unwrap();
+					let default_profile_index = menubar.find_index(&format!("&File/Profiles/{}", profiles::DEFAULT));
 
-					let new_index = profile_menu.insert_emit(
-						1,
+					let new_index = menubar.insert_emit(
+						default_profile_index,
 						&name,
 						enums::Shortcut::None,
 						menu::MenuFlag::Normal,
@@ -848,7 +852,7 @@ async fn main() {
 						}
 					}
 
-					let mut item = profile_menu.at(new_index).unwrap();
+					let mut item = menubar.at(new_index).unwrap();
 					item.set_label_color(enums::Color::Red);
 
                     dialog::message_default(&format!("Successfully created '{}' profile", &name));
@@ -912,7 +916,7 @@ async fn main() {
 					// INFO: if name is not empty, save profile as new
 					if name.len() > 0 {
 						let profile =
-							profiles::Profile::new(download_address, branch_name, mods_pathbuf);
+							profiles::Profile::new(download_address, branch_name, mods_pathbuf, Vec::new());
 
 						profiles_map.new_profile(name, profile);
 					} else {

@@ -5,15 +5,19 @@ repository = "https://github.com/almafa64/minecraft-mod-syncer"
 version = "0.3.0"
 edition = "2024"
 
+#[profile.release]
+#opt-level = "s"
+#strip = true
+
 [dependencies]
-fltk = { version = "1.5.9", features = ['no-pango'] }
+fltk = { version = "1.5.14", features = ['no-pango'] }
 dirs = "6.0.0"
-reqwest = { version = "0.12.15", features = ['json', 'stream'] }
-tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "fs", "sync", "io-util"] }
-serde_json = "1.0.140"
-serde = { version = "1.0.219", features = ["derive"]}
+reqwest = { version = "0.12.23", features = ['json', 'stream'] }
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "fs", "sync", "io-util"] }
+serde_json = "1.0.145"
+serde = { version = "1.0.227", features = ["derive"]}
 lazy_static = "1.5.0"
 futures-util = "0.3.31"
-zip = { version = "4.2.0", default-features = false, features = ["time", "deflate"]}
+zip = { version = "5.1.1", default-features = false, features = ["time", "deflate"]}
 dashmap = { version = "6.1.0", features = ["serde"]}
 fltk-theme = "0.7.9"

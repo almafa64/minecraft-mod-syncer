@@ -22,7 +22,7 @@ pub struct Profile {
 }
 
 impl Profile {
-	pub fn new<A, B, M>(address: A, branch: B, mods_path: M) -> Self
+	pub fn new<A, B, M>(address: A, branch: B, mods_path: M, keep_mod_names: Vec<String>) -> Self
 	where
 		A: Into<String>,
 		B: Into<String>,
@@ -32,7 +32,7 @@ impl Profile {
 			address: address.into(),
 			branch: branch.into(),
 			mods_path: mods_path.into(),
-			keep_mod_names: Vec::new(),
+			keep_mod_names: keep_mod_names,
 		}
 	}
 }
