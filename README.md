@@ -16,9 +16,10 @@ A simple tool for downloading necessary mods from [my custom host webserver](htt
 - [ ] grey out required mods
 - [X] optional mods
 - [ ] checking version changes (must download/delete)
-- [ ] saving uncheked to_delete mods to keep file + load them
-- [ ] profiles
-- [ ] about dialog
+- [X] saving uncheked to_delete mods to keep file + load them
+- [X] profiles
+- [X] about dialog
+- [ ] auto update from github
 
 ## FAQ
 ### For who is this tool?
