@@ -161,6 +161,11 @@ pub async fn download_files(
 						break;
 					}
 
+					// INFO: try again chunk
+					if chunk.is_err() {
+						continue;
+					}
+
 					let c = chunk.unwrap();
 					let chunk_size = c.len();
 					size_under_time += chunk_size;
@@ -251,6 +256,11 @@ pub async fn download_zip(
 				if let Ok(true) = progress_stop_rx_locked.try_recv() {
 					stopped = true;
 					break;
+				}
+
+				// INFO: try again chunk
+				if chunk.is_err() {
+					continue;
 				}
 
 				let c = chunk.unwrap();
