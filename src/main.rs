@@ -112,12 +112,13 @@ lazy_static! {
 async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
 
-	let profiles_map = profiles::load_profiles().await;
+	let mut profiles_map = profiles::load_profiles().await;
 	if !profiles_map.profile_exists(profiles::DEFAULT) {
 		profiles_map.new_profile(
 			profiles::DEFAULT,
-			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", "", Vec::new()),
+			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", None),
 		);
+		profiles_map.set_last_profile_name(profiles::DEFAULT);
 		profiles::save_profiles(&profiles_map).await;
 	}
 
@@ -307,7 +308,9 @@ async fn main() {
 		Events::MenuDeleteProfile,
 	);
 
-	fltk_tx.send(Events::MenuProfile(profiles::get_last_profile_name().await));
+	fltk_tx.send(Events::MenuProfile(String::from(
+		profiles_map.get_last_profile_name(),
+	)));
 
 	main_wind.show();
 
@@ -536,8 +539,19 @@ async fn main() {
 					let to_deletes = syncer::get_mods_to_delete(remote_mods, &local_mod_names);
 					let to_downloads = syncer::get_mods_to_download(remote_mods, &local_mod_names);
 
+					let profile = profiles_map
+						.get_profile(app_state_locked.profile_name.as_ref().unwrap())
+						.unwrap();
+					let keep_mods_branch = profile
+						.keep_mods_in_branch
+						.get(app_state_locked.branch_name.as_ref().unwrap());
+
 					for to_delete in to_deletes.iter() {
-						let is_checked = true;
+						let is_checked = keep_mods_branch
+							.as_ref()
+							.and_then(|v| Some(!v.contains(to_delete)))
+							.unwrap_or(true);
+
 						delete_list.add(to_delete, is_checked);
 						app_state_locked
 							.to_delete_names
@@ -546,6 +560,7 @@ async fn main() {
 
 					for to_download in to_downloads.iter() {
 						let is_checked = !to_download.is_optional;
+
 						download_list.add(&to_download.name, is_checked);
 						app_state_locked
 							.to_download_names
@@ -696,9 +711,36 @@ async fn main() {
 				}
 				Events::DeleteListUpdate => {
 					let mut app_state_locked = app_state.write().await;
+
 					let modname = delete_list.text(delete_list.value()).unwrap();
 					let is_checked = delete_list.checked(delete_list.value());
+
 					*app_state_locked.to_delete_names.get_mut(&modname).unwrap() = is_checked;
+
+					if let Some(profile) = app_state_locked
+						.profile_name
+						.as_ref()
+						.and_then(|v| profiles_map.get_mut_profile(v))
+					{
+						if let Some(branch_name) = app_state_locked.branch_name.as_ref() {
+							if !profile.keep_mods_in_branch.contains_key(branch_name) {
+								profile
+									.keep_mods_in_branch
+									.insert(branch_name.clone(), Vec::new());
+							}
+
+							let mut keep_mods_branch =
+								profile.keep_mods_in_branch.get_mut(branch_name).unwrap();
+
+							let index = keep_mods_branch.value().iter().position(|n| *n == modname);
+
+							if is_checked && index.is_some() {
+								keep_mods_branch.swap_remove(index.unwrap());
+							} else if !is_checked && index.is_none() {
+								keep_mods_branch.push(modname.clone());
+							}
+						}
+					}
 				}
 				Events::Alert(text) => {
 					dialog::alert_default(&text);
@@ -707,7 +749,7 @@ async fn main() {
 				// Download events
 				Events::ShowDownloadModal { total_size } => {
 					file_count_label.set_label(&"0/0");
-					total_progress.set_label("Total progess 0%");
+					total_progress.set_label("Total progress 0%");
 					total_progress.set_maximum(total_size as f64);
 					total_progress.set_value(0.0);
 					download_wind.show();
@@ -722,7 +764,7 @@ async fn main() {
 					file_count_label.set_label(&format!("{}/{}", count, total_file_count));
 					download_speed_label.set_label("0 B/s");
 					current_progress.set_value(0.0);
-					current_progress.set_label("Current progess 0%");
+					current_progress.set_label("Current progress 0%");
 					current_progress.set_maximum(size as f64);
 				}
 				// TODO: pass total, current downloaded chunk instead of calculating here
@@ -791,17 +833,25 @@ async fn main() {
 					let profile = profile.as_ref().unwrap().value();
 
 					server_ip_input.set_value(&profile.address);
-					
-                    if profile.mods_path.len() == 0 {
-                        if let Some(mod_folder) = syncer::try_get_mods_folder() {
-                            mods_path_input.set_value(mod_folder.canonicalize().unwrap_or_default().to_str().unwrap_or_default().strip_prefix("\\\\?\\").unwrap_or_default());
-                        }
-                    } else {
-                        mods_path_input.set_value(&profile.mods_path);
-                    }
-                    mods_path_input.do_callback();
 
-                    let i = branch_chooser.find_index(&profile.branch);
+					if profile.mods_path.len() == 0 {
+						if let Some(mod_folder) = syncer::try_get_mods_folder() {
+							mods_path_input.set_value(
+								mod_folder
+									.canonicalize()
+									.unwrap_or_default()
+									.to_str()
+									.unwrap_or_default()
+									.strip_prefix("\\\\?\\")
+									.unwrap_or_default(),
+							);
+						}
+					} else {
+						mods_path_input.set_value(&profile.mods_path);
+					}
+					mods_path_input.do_callback();
+
+					let i = branch_chooser.find_index(&profile.branch);
 					if i >= 0 {
 						branch_chooser.set_value(i);
 					}
@@ -833,7 +883,8 @@ async fn main() {
 
 					fltk_tx.send(Events::MenuSaveProfile(name.clone()));
 
-					let default_profile_index = menubar.find_index(&format!("&File/Profiles/{}", profiles::DEFAULT));
+					let default_profile_index =
+						menubar.find_index(&format!("&File/Profiles/{}", profiles::DEFAULT));
 
 					let new_index = menubar.insert_emit(
 						default_profile_index,
@@ -855,9 +906,11 @@ async fn main() {
 					let mut item = menubar.at(new_index).unwrap();
 					item.set_label_color(enums::Color::Red);
 
-                    dialog::message_default(&format!("Successfully created '{}' profile", &name));
+					dialog::message_default(&format!("Successfully created '{}' profile", &name));
 
 					app_state_locked.profile_name = Some(name);
+
+					ip_ok_button.do_callback();
 				}
 				Events::MenuDeleteProfile => {
 					let app_state_locked = app_state.read().await;
@@ -896,7 +949,7 @@ async fn main() {
 
 					profiles::save_profiles(&profiles_map).await;
 
-                    dialog::message_default(&format!("Successfully deleted '{}' profile", &name));
+					dialog::message_default(&format!("Successfully deleted '{}' profile", &name));
 				}
 				Events::MenuSaveProfile(name) => {
 					let app_state_locked = app_state.read().await;
@@ -913,18 +966,23 @@ async fn main() {
 						.to_str()
 						.unwrap();
 
-					// INFO: if name is not empty, save profile as new
+					// INFO: if name is not empty save profile as new, else use current profile
 					if name.len() > 0 {
-						let profile =
-							profiles::Profile::new(download_address, branch_name, mods_pathbuf, Vec::new());
+						let profile = profiles::Profile::new(
+							download_address,
+							mods_pathbuf,
+							Some(String::from(branch_name)),
+						);
 
+						profiles_map.set_last_profile_name(&name);
 						profiles_map.new_profile(name, profile);
 					} else {
-						let mut profile = profiles_map
-							.get_mut_profile(app_state_locked.profile_name.as_ref().unwrap())
-							.unwrap();
+						let profile_name = app_state_locked.profile_name.as_ref().unwrap();
 
-						let profile = profile.value_mut();
+						profiles_map.set_last_profile_name(profile_name.clone());
+
+						let mut profile = profiles_map.get_mut_profile(profile_name).unwrap();
+
 						profile.address = String::from(download_address);
 						profile.branch = String::from(branch_name);
 						profile.mods_path = String::from(mods_pathbuf);

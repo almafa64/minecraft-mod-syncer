@@ -1,9 +1,4 @@
-use std::{
-	collections::HashMap,
-	fmt::Write,
-	io::SeekFrom,
-	sync::{Arc, OnceLock},
-};
+use std::{io::SeekFrom, sync::Arc};
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -13,37 +8,43 @@ use tokio::{
 	sync::{Mutex, OnceCell},
 };
 
+pub const DEFAULT: &'static str = "default";
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Profile {
 	pub address: String,
 	pub branch: String,
 	pub mods_path: String,
-	pub keep_mod_names: Vec<String>,
+	pub keep_mods_in_branch: DashMap<String, Vec<String>>,
 }
 
 impl Profile {
-	pub fn new<A, B, M>(address: A, branch: B, mods_path: M, keep_mod_names: Vec<String>) -> Self
+	pub fn new<A, M>(address: A, mods_path: M, branch: Option<String>) -> Self
 	where
 		A: Into<String>,
-		B: Into<String>,
 		M: Into<String>,
 	{
 		Self {
 			address: address.into(),
-			branch: branch.into(),
+			branch: branch.unwrap_or_default(),
 			mods_path: mods_path.into(),
-			keep_mod_names: keep_mod_names,
+			keep_mods_in_branch: DashMap::new(),
 		}
 	}
 }
 
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct ProfilesMap {
+	version: u8,
+	last_profile: String,
 	profiles: DashMap<String, Profile>,
 }
 
 impl ProfilesMap {
 	pub fn new() -> Self {
 		ProfilesMap {
+			version: 1,
+			last_profile: String::new(),
 			profiles: DashMap::new(),
 		}
 	}
@@ -60,6 +61,17 @@ impl ProfilesMap {
 		name: &str,
 	) -> Option<dashmap::mapref::one::RefMut<'_, String, Profile>> {
 		self.profiles.get_mut(name)
+	}
+
+	pub fn get_last_profile_name(&self) -> &str {
+		self.last_profile.as_ref()
+	}
+
+	pub fn set_last_profile_name<N>(&mut self, name: N)
+	where
+		N: Into<String>,
+	{
+		self.last_profile = name.into();
 	}
 
 	pub fn new_profile<N>(&self, name: N, profile: Profile)
@@ -89,8 +101,6 @@ impl ProfilesMap {
 	}
 }
 
-pub const DEFAULT: &'static str = "default";
-
 async fn get_profiles_file() -> Arc<Mutex<File>> {
 	static PROFILES_FILE: OnceCell<Arc<Mutex<File>>> = OnceCell::const_new();
 
@@ -118,13 +128,8 @@ async fn get_profiles_file() -> Arc<Mutex<File>> {
 }
 
 // INFO: not longer used, maybe handy in future
-fn validate_profile_name(_name: &str) -> bool {
+fn validate_profile_name(name: &str) -> bool {
 	true
-}
-
-// TODO: not implemented yet
-pub async fn get_last_profile_name() -> String {
-	String::from(DEFAULT)
 }
 
 pub async fn load_profiles() -> ProfilesMap {
@@ -138,28 +143,20 @@ pub async fn load_profiles() -> ProfilesMap {
 		.expect("Failed to read in profiles file");
 
 	if buf.len() == 0 {
-		buf.write_str("{}")
-			.expect("Failed to initialize profiles file");
+		return ProfilesMap::new();
 	}
 
-	let read_profiles: HashMap<String, Profile> =
+	let read_profiles: ProfilesMap =
 		serde_json::from_str(&buf).expect("Failed to serialize profiles file");
 
-	let profiles_map = ProfilesMap::new();
-
-	for (k, v) in read_profiles {
-		profiles_map.new_profile(k, v);
-	}
-
-	profiles_map
+	read_profiles
 }
 
 pub async fn save_profiles(profiles_map: &ProfilesMap) {
 	let file = get_profiles_file().await;
 	let mut file_locked = file.lock().await;
 
-	let json =
-		serde_json::to_string(&profiles_map.profiles).expect("Failed to convert profiles to json");
+	let json = serde_json::to_string(&profiles_map).expect("Failed to convert profiles to json");
 
 	file_locked
 		.set_len(0)

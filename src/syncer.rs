@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Result};
+use std::io::{BufReader, Read, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -38,26 +38,19 @@ pub fn is_mods_folder(path: &Path) -> bool {
 }
 
 pub fn try_get_mods_folder() -> Option<PathBuf> {
-	let mods_folder = Path::new(".").join("mods");
+	let current_path = Path::new(".");
+
+	let mods_folder = current_path.join("mods");
 	if let Ok(true) = std::fs::exists(&mods_folder) {
 		return Some(mods_folder);
 	}
 
-	let mods_folder = Path::new(".").join(".minecraft").join("mods");
+	let mods_folder = current_path.join(".minecraft").join("mods");
 	if let Ok(true) = std::fs::exists(&mods_folder) {
 		return Some(mods_folder);
 	}
 
 	get_os_default_mods_folder().filter(|v| is_mods_folder(v))
-}
-
-pub fn get_keep_mods(keep_mods_file: &File) -> Result<ModNames> {
-	let keep_mod_names: ModNames = BufReader::new(keep_mods_file)
-		.lines()
-		.filter_map(Result::ok)
-		.collect();
-
-	Ok(keep_mod_names)
 }
 
 pub fn get_local_mods(mod_dir_path: &Path) -> Result<ModNames> {
