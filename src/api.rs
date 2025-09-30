@@ -1,21 +1,16 @@
 use std::{sync::LazyLock, time::Duration};
 
 use reqwest::{Client, Response, Result};
+use serde::Deserialize;
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ZipFile {
 	pub size: u64,
 	pub is_present: bool,
 	pub mod_date: f64,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct BranchInfo {
-	pub mods: Mods,
-	pub zip: ZipFile,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Mod {
 	pub name: String,
 	pub mod_date: f64,
@@ -25,6 +20,12 @@ pub struct Mod {
 
 pub type BranchNames = Vec<String>;
 pub type Mods = Vec<Mod>;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BranchInfo {
+	pub mods: Mods,
+	pub zip: ZipFile,
+}
 
 // TODO: try http and if doesnt work try https
 const HTTP_TYPE: &str = "https://";
@@ -42,7 +43,7 @@ fn get_client() -> &'static Client {
 
 pub async fn website_exists(api_address: &str) -> Result<bool> {
 	let path = format!("{}{}/mods", HTTP_TYPE, api_address);
-	let res = get_client().get(path).send().await?;
+	let res = get_client().head(path).send().await?;
 
 	Ok(res.status().is_success())
 }

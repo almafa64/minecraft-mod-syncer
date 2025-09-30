@@ -8,8 +8,6 @@ use tokio::{
 	sync::{Mutex, OnceCell},
 };
 
-pub const DEFAULT: &'static str = "default";
-
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Profile {
 	pub address: String,
@@ -19,11 +17,11 @@ pub struct Profile {
 }
 
 impl Profile {
-	pub fn new<A, M>(address: A, mods_path: M, branch: Option<String>) -> Self
-	where
-		A: Into<String>,
-		M: Into<String>,
-	{
+	pub fn new(
+		address: impl Into<String>,
+		mods_path: impl Into<String>,
+		branch: Option<String>,
+	) -> Self {
 		Self {
 			address: address.into(),
 			branch: branch.unwrap_or_default(),
@@ -49,6 +47,7 @@ impl ProfilesMap {
 		}
 	}
 
+	/// Get an immutable reference to a profile entry in a map
 	pub fn get_profile(
 		&self,
 		name: &str,
@@ -56,6 +55,7 @@ impl ProfilesMap {
 		self.profiles.get(name)
 	}
 
+	/// Get an mutable reference to a profile entry in a map
 	pub fn get_mut_profile(
 		&self,
 		name: &str,
@@ -67,28 +67,16 @@ impl ProfilesMap {
 		self.last_profile.as_ref()
 	}
 
-	pub fn set_last_profile_name<N>(&mut self, name: N)
-	where
-		N: Into<String>,
-	{
+	// TODO: make this private --> how to set last?
+	pub fn set_last_profile_name(&mut self, name: impl Into<String>) {
 		self.last_profile = name.into();
 	}
 
-	pub fn new_profile<N>(&self, name: N, profile: Profile)
-	where
-		N: Into<String>,
-	{
-		let name = name.into();
-		if !validate_profile_name(&name) {
-			return;
-		}
-		self.profiles.insert(name, profile);
+	pub fn new_profile(&self, name: impl Into<String>, profile: Profile) {
+		self.profiles.insert(name.into(), profile);
 	}
 
 	pub fn delete_profile(&self, name: &str) {
-		if !validate_profile_name(&name) {
-			return;
-		}
 		self.profiles.remove(name);
 	}
 
@@ -101,6 +89,10 @@ impl ProfilesMap {
 	}
 }
 
+/// Generate and get profiles file
+/// # Panics
+/// if platform isn't windows, linux or macos
+/// if folder or file couln't be created
 async fn get_profiles_file() -> Arc<Mutex<File>> {
 	static PROFILES_FILE: OnceCell<Arc<Mutex<File>>> = OnceCell::const_new();
 
@@ -127,11 +119,11 @@ async fn get_profiles_file() -> Arc<Mutex<File>> {
 		.clone()
 }
 
-// INFO: not longer used, maybe handy in future
-fn validate_profile_name(name: &str) -> bool {
-	true
-}
-
+/// Load profiles in from profiles file
+/// # Panics
+/// if file couldn't be read
+/// if file content isn't valid JSON
+/// if JSON couldn't be deserialized to ProfilesMap
 pub async fn load_profiles() -> ProfilesMap {
 	let file = get_profiles_file().await;
 	let mut file_locked = file.lock().await;
@@ -152,6 +144,9 @@ pub async fn load_profiles() -> ProfilesMap {
 	read_profiles
 }
 
+/// Write profiles out to profiles file
+/// # Panics
+/// if file couldn't be written
 pub async fn save_profiles(profiles_map: &ProfilesMap) {
 	let file = get_profiles_file().await;
 	let mut file_locked = file.lock().await;

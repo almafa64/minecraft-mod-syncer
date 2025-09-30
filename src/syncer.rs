@@ -15,7 +15,8 @@ use crate::{AppState, Events};
 pub type ModNames = Vec<String>;
 pub type Mods = Vec<Mod>;
 
-// INFO: this doesnt checks if folder exists
+/// Get the offical minecraft launcher's minecraft folder for the os
+/// This doesn't checks if folder exists
 pub fn get_os_default_mods_folder() -> Option<PathBuf> {
 	if cfg!(target_os = "windows") {
 		Some(dirs::config_dir().unwrap().join(".minecraft").join("mods"))
@@ -28,15 +29,17 @@ pub fn get_os_default_mods_folder() -> Option<PathBuf> {
 	}
 }
 
-// TODO: can be mods/ or mods\
+/// Returns wether path is valid mods folder (ends in mods, exists and accessible)
 pub fn is_mods_folder(path: &Path) -> bool {
-	if !path.ends_with("mods") || !path.is_dir() {
+	if !path.file_name().is_some_and(|x| x == "mods") || !path.is_dir() {
 		return false;
 	}
 
 	true
 }
 
+/// Tries to get a valid mods folder automaticly
+/// First checks if ./mods exists, then ./.minecraft/mods lastly the offical launcher's minecraft path
 pub fn try_get_mods_folder() -> Option<PathBuf> {
 	let current_path = Path::new(".");
 
@@ -53,6 +56,8 @@ pub fn try_get_mods_folder() -> Option<PathBuf> {
 	get_os_default_mods_folder().filter(|v| is_mods_folder(v))
 }
 
+/// Get locally installed mod names
+/// Only collects .jar files (case-insensitive)
 pub fn get_local_mods(mod_dir_path: &Path) -> Result<ModNames> {
 	let mod_names: ModNames = mod_dir_path
 		.read_dir()?
@@ -71,14 +76,18 @@ pub fn get_local_mods(mod_dir_path: &Path) -> Result<ModNames> {
 	Ok(mod_names)
 }
 
+/// Get all mods that are in remote_mods but not in local_mods
 pub fn get_mods_to_download(remote_mods: &Mods, local_mods: &ModNames) -> Mods {
+	let local_mod_names: HashSet<&String> = HashSet::from_iter(local_mods);
+
 	remote_mods
 		.iter()
-		.filter(|e| !local_mods.contains(&e.name))
+		.filter(|e| !local_mod_names.contains(&e.name))
 		.cloned()
 		.collect()
 }
 
+/// Get all mod names that are in local_mods but not in remote_mods
 pub fn get_mods_to_delete(remote_mods: &Mods, local_mods: &ModNames) -> ModNames {
 	let remote_mod_names: HashSet<&String> =
 		HashSet::from_iter(remote_mods.iter().map(|e| &e.name));

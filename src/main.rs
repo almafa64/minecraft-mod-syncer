@@ -20,7 +20,7 @@ mod profiles;
 mod syncer;
 mod utils;
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct AppState {
 	server_api_address: Option<String>,
 	server_main_address: Option<String>,
@@ -32,20 +32,6 @@ pub struct AppState {
 	profile_name: Option<String>,
 }
 
-impl AppState {
-	pub fn default() -> AppState {
-		AppState {
-			branch_name: None,
-			server_api_address: None,
-			server_main_address: None,
-			mods_path: None,
-			branch_info: None,
-			to_delete_names: HashMap::new(),
-			to_download_names: HashMap::new(),
-			profile_name: None,
-		}
-	}
-}
 
 #[derive(Debug, Clone)]
 pub enum Events {
@@ -96,12 +82,15 @@ pub enum Events {
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const REPOSITORY: &'static str = env!("CARGO_PKG_REPOSITORY");
 
-// INFO: debug only
+const DEFAULT_PROFILE_NAME: &'static str = "default";
+
+// TODO: make this setting
 lazy_static! {
 	static ref LABEL_ALIGN: enums::Align = enums::Align::Left | enums::Align::Inside;
 }
 
 // TODO:
+// check out unwrap usage
 // set every widget value in app_state even if not good (so profiles can save it)
 // Possible changes in profiles
 //   - dont revert to default when deleting selected profile
@@ -111,23 +100,27 @@ lazy_static! {
 #[tokio::main]
 async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
-
+	
 	let mut profiles_map = profiles::load_profiles().await;
-	if !profiles_map.profile_exists(profiles::DEFAULT) {
+
+	if !profiles_map.profile_exists(DEFAULT_PROFILE_NAME) {
 		profiles_map.new_profile(
-			profiles::DEFAULT,
+			DEFAULT_PROFILE_NAME,
 			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", None),
 		);
-		profiles_map.set_last_profile_name(profiles::DEFAULT);
+		profiles_map.set_last_profile_name(DEFAULT_PROFILE_NAME);
 		profiles::save_profiles(&profiles_map).await;
 	}
 
-	//let app = app::App::default().with_scheme(app::Scheme::Gtk);
 	let app = app::App::default();
 	let widget_theme = fltk_theme::WidgetTheme::new(fltk_theme::ThemeType::Classic);
 	widget_theme.apply();
 	let widget_scheme = fltk_theme::WidgetScheme::new(fltk_theme::SchemeType::Fleet1);
 	widget_scheme.apply();
+
+	let (fltk_tx, fltk_rx) = app::channel::<Events>();
+	let (progress_stop_tx, progress_stop_rx) = tokio::sync::mpsc::channel::<bool>(1);
+	let progress_stop_rx = Arc::new(Mutex::new(progress_stop_rx));
 
 	// ----- Main window section  -----
 
@@ -136,6 +129,7 @@ async fn main() {
 		.with_label("Minecraft mod syncer");
 	main_wind.make_resizable(true);
 
+	// flex so menubar doesn't scale with window
 	let mut flex = group::Flex::default().size_of_parent().column();
 	let mut menubar = menu::MenuBar::default();
 	menubar.set_frame(enums::FrameType::ThinUpBox);
@@ -182,8 +176,9 @@ async fn main() {
 
 	let mut download_but = button::Button::default().with_label("Download");
 
-	// INFO: debug only, testing alignemts
-	if LABEL_ALIGN.intersection(enums::Align::Right) == enums::Align::Right {
+	main_wind.end();
+
+	if LABEL_ALIGN.contains(enums::Align::Right) {
 		let width = server_ip_label.measure_label().0 + 15;
 		input_flex.fixed(&server_ip_label, width);
 		branch_flex.fixed(&branch_label, width);
@@ -210,12 +205,6 @@ async fn main() {
 	download_list.clear_visible_focus();
 	delete_list.clear_visible_focus();
 
-	main_wind.end();
-
-	let (fltk_tx, fltk_rx) = app::channel::<Events>();
-	let (progress_stop_tx, progress_stop_rx) = tokio::sync::mpsc::channel::<bool>(1);
-	let progress_stop_rx = Arc::new(Mutex::new(progress_stop_rx));
-
 	server_ip_input.emit(fltk_tx, Events::GetBranches);
 	ip_ok_button.emit(fltk_tx, Events::GetBranches);
 	branch_chooser.emit(fltk_tx, Events::GetMods);
@@ -231,6 +220,7 @@ async fn main() {
 	delete_list.set_trigger(enums::CallbackTrigger::Changed);
 
 	// TODO: dont use sleep
+    // INFO: save current profile before quiting
 	main_wind.set_callback(move |_| {
 		fltk_tx.send(Events::MenuSaveProfile(String::from("")));
 		tokio::spawn(async {
@@ -266,7 +256,7 @@ async fn main() {
 		profile_names.sort();
 
 		for profile_name in profile_names {
-			if profile_name == profiles::DEFAULT {
+			if profile_name == DEFAULT_PROFILE_NAME {
 				continue;
 			}
 
@@ -280,11 +270,11 @@ async fn main() {
 		}
 	}
 	menubar.add_emit(
-		&format!("&File/Profiles/{}", profiles::DEFAULT),
+		&format!("&File/Profiles/{}", DEFAULT_PROFILE_NAME),
 		enums::Shortcut::None,
 		menu::MenuFlag::MenuDivider,
 		fltk_tx,
-		Events::MenuProfile(String::from(profiles::DEFAULT)),
+		Events::MenuProfile(String::from(DEFAULT_PROFILE_NAME)),
 	);
 	menubar.add_emit(
 		"&File/Profiles/New",
@@ -417,6 +407,7 @@ async fn main() {
 					let mut app_state_locked = app_state.write().await;
 
 					// TODO: update if branches changed (this line skips that)
+					// INFO: returns if current address is the same as the previous
 					if app_state_locked
 						.server_main_address
 						.as_ref()
@@ -449,6 +440,7 @@ async fn main() {
 					tokio::spawn(async move {
 						let app_state_locked = app_state.read().await;
 						let api_path = app_state_locked.server_api_address.as_ref().unwrap();
+
 						match api::get_branch_names(api_path).await {
 							Ok(branch_names) => {
 								fltk_tx.send(Events::BranchesResult(branch_names));
@@ -462,10 +454,12 @@ async fn main() {
 				}
 				Events::BranchesResult(branch_names) => {
 					println!("Got branches: {:?}", branch_names);
+
 					for branch_name in branch_names {
 						branch_chooser.add_choice(&branch_name);
 					}
 					branch_chooser.set_value(0);
+
 					fltk_tx.send(Events::GetMods);
 				}
 				Events::BranchError(err) => {
@@ -501,6 +495,7 @@ async fn main() {
 						let app_state_locked = app_state.read().await;
 						let branch_name = app_state_locked.branch_name.as_ref().unwrap();
 						let api_path = app_state_locked.server_api_address.as_ref().unwrap();
+
 						match api::get_mods_in_branch(api_path, branch_name).await {
 							Ok(mods) => {
 								fltk_tx.send(Events::ModsResult(mods));
@@ -591,28 +586,20 @@ async fn main() {
 								return;
 							}
 						};
-						let mods_pathbuf = match app_state_locked.mods_path.as_ref() {
-							Some(mods_path) => mods_path,
-							None => {
-								fltk_tx.send(Events::Alert(format!(
-									"Please set 'mods' folder path (e.g. {})!",
-									syncer::get_os_default_mods_folder()
-										.as_ref()
-										.and_then(|e| e.to_str())
-										.unwrap_or("whats your platform?")
-								)));
-								return;
-							}
-						};
 						let zip_file = &branch_info.zip;
 						let mcmods = &branch_info.mods;
 
-						// TODO: fire event to save keep mods
-						let to_deletes: HashSet<&String> = app_state_locked
-							.to_delete_names
-							.iter()
-							.filter_map(|e| e.1.then_some(e.0))
-							.collect();
+						if app_state_locked.mods_path.is_none() {
+							fltk_tx.send(Events::Alert(format!(
+								"Please set 'mods' folder path (e.g. {})!",
+								syncer::get_os_default_mods_folder()
+									.as_ref()
+									.and_then(|e| e.to_str())
+									.unwrap_or("whats your platform?")
+							)));
+							return;
+						}
+
 						let to_downloads: HashSet<&String> = app_state_locked
 							.to_download_names
 							.iter()
@@ -630,15 +617,14 @@ async fn main() {
 						let total_count = mcmods.len();
 
 						// INFO: if zip is not present, download all files separately
-						let zip_size = if zip_file.is_present {
-							zip_file.size
-						} else {
-							u64::max_value()
-						};
+						let zip_size = zip_file
+							.is_present
+							.then_some(zip_file.size)
+							.unwrap_or_else(u64::max_value);
 
-						// INFO: download zip even if it's bigger by 2% than files
+						// INFO: download zip even if it's bigger by 5% than files
 						// TODO: generalize more
-						if total_size > zip_size * 98 / 100 {
+						if total_size > zip_size * 95 / 100 {
 							fltk_tx.send(Events::ShowDownloadModal {
 								total_size: zip_size,
 							});
@@ -662,6 +648,7 @@ async fn main() {
 				}
 				Events::PathSet => {
 					let mut app_state_locked = app_state.write().await;
+
 					let mods_path_str = mods_path_input.value();
 					let dir = Path::new(&mods_path_str);
 
@@ -684,6 +671,7 @@ async fn main() {
 				}
 				Events::DownloadListUpdate => {
 					let mut app_state_locked = app_state.write().await;
+
 					let modname = download_list.text(download_list.value()).unwrap();
 					let is_checked = download_list.checked(download_list.value());
 
@@ -769,6 +757,8 @@ async fn main() {
 				}
 				// TODO: pass total, current downloaded chunk instead of calculating here
 				Events::DownloadProgess { downloaded_chunk } => {
+                    // INFO: add chunk size to progress bars value
+
 					current_progress.set_value(current_progress.value() + downloaded_chunk as f64);
 					current_progress.set_label(&format!(
 						"Current progress {:.2}%",
@@ -790,8 +780,10 @@ async fn main() {
 				}
 				Events::DeleteMods => {
 					let app_state = app_state.clone();
+
 					tokio::spawn(async move {
 						let app_state_locked = app_state.read().await;
+
 						let mods_pathbuf = app_state_locked.mods_path.as_ref().unwrap();
 						let to_deletes: HashSet<&String> = app_state_locked
 							.to_delete_names
@@ -838,7 +830,7 @@ async fn main() {
 						if let Some(mod_folder) = syncer::try_get_mods_folder() {
 							mods_path_input.set_value(
 								mod_folder
-									.canonicalize()
+									.canonicalize() // INFO: windows returns UNC path (e.g. \\?\C:\)
 									.unwrap_or_default()
 									.to_str()
 									.unwrap_or_default()
@@ -849,6 +841,7 @@ async fn main() {
 					} else {
 						mods_path_input.set_value(&profile.mods_path);
 					}
+                    // TODO: remove this after centralizing value saving
 					mods_path_input.do_callback();
 
 					let i = branch_chooser.find_index(&profile.branch);
@@ -884,7 +877,7 @@ async fn main() {
 					fltk_tx.send(Events::MenuSaveProfile(name.clone()));
 
 					let default_profile_index =
-						menubar.find_index(&format!("&File/Profiles/{}", profiles::DEFAULT));
+						menubar.find_index(&format!("&File/Profiles/{}", DEFAULT_PROFILE_NAME));
 
 					let new_index = menubar.insert_emit(
 						default_profile_index,
@@ -924,7 +917,7 @@ async fn main() {
 
 					let name = name.unwrap();
 
-					if name == profiles::DEFAULT {
+					if name == DEFAULT_PROFILE_NAME {
 						fltk_tx.send(Events::Alert(String::from("Good try")));
 						continue;
 					}
@@ -944,7 +937,7 @@ async fn main() {
 						.as_ref()
 						.is_some_and(|v| *v == name)
 					{
-						fltk_tx.send(Events::MenuProfile(String::from(profiles::DEFAULT)));
+						fltk_tx.send(Events::MenuProfile(String::from(DEFAULT_PROFILE_NAME)));
 					}
 
 					profiles::save_profiles(&profiles_map).await;
