@@ -800,7 +800,7 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "minecraft-mod-syncer"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "dashmap",
  "dirs",
@@ -809,6 +809,7 @@ dependencies = [
  "futures-util",
  "lazy_static",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "tokio",
@@ -1183,6 +1184,12 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
+
+[[package]]
+name = "semver"
+version = "1.0.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "serde"

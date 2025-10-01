@@ -1,6 +1,7 @@
 use std::{sync::LazyLock, time::Duration};
 
-use reqwest::{Client, Response, Result};
+use reqwest::{Client, Response, Result, header};
+use semver::Version;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -27,9 +28,6 @@ pub struct BranchInfo {
 	pub zip: ZipFile,
 }
 
-// TODO: try http and if doesnt work try https
-const HTTP_TYPE: &str = "https://";
-
 fn get_client() -> &'static Client {
 	static CLIENT: LazyLock<Client> = LazyLock::new(|| {
 		Client::builder()
@@ -41,15 +39,40 @@ fn get_client() -> &'static Client {
 	&CLIENT
 }
 
+/// Get this project's latest released version
+pub async fn get_repo_version() -> std::result::Result<Version, Box<dyn std::error::Error>> {
+	let path = format!("{}/releases/latest", env!("CARGO_PKG_REPOSITORY"));
+	let res = Client::builder()
+		.redirect(reqwest::redirect::Policy::none())
+		.timeout(Duration::from_secs(10))
+		.build()
+		.unwrap()
+		.head(path)
+		.send()
+		.await?;
+
+	let ver_string = res
+		.headers()
+		.get(header::LOCATION)
+		.unwrap()
+		.to_str()
+		.unwrap()
+		.split("/")
+		.last()
+		.unwrap();
+
+	Ok(Version::parse(ver_string)?)
+}
+
 pub async fn website_exists(api_address: &str) -> Result<bool> {
-	let path = format!("{}{}/mods", HTTP_TYPE, api_address);
+	let path = format!("{}/mods", api_address);
 	let res = get_client().head(path).send().await?;
 
 	Ok(res.status().is_success())
 }
 
 pub async fn get_branch_names(api_address: &str) -> Result<BranchNames> {
-	let path = format!("{}{}/mods", HTTP_TYPE, api_address);
+	let path = format!("{}/mods", api_address);
 	let res = get_client()
 		.get(path)
 		.send()
@@ -61,7 +84,7 @@ pub async fn get_branch_names(api_address: &str) -> Result<BranchNames> {
 }
 
 pub async fn get_mods_in_branch(api_address: &str, branch_name: &str) -> Result<BranchInfo> {
-	let path = format!("{}{}/mods/{}", HTTP_TYPE, api_address, branch_name);
+	let path = format!("{}/mods/{}", api_address, branch_name);
 	let res = get_client()
 		.get(path)
 		.send()
@@ -77,17 +100,14 @@ pub async fn request_mod(
 	branch_name: &str,
 	file_name: &str,
 ) -> Result<Response> {
-	let path = format!(
-		"{}{}/mods/{}/{}",
-		HTTP_TYPE, main_address, branch_name, file_name
-	);
+	let path = format!("{}/mods/{}/{}", main_address, branch_name, file_name);
 	let res = get_client().get(path).send().await?;
 
 	Ok(res)
 }
 
 pub async fn request_mod_zip(main_address: &str, branch_name: &str) -> Result<Response> {
-	let path = format!("{}{}/mods/{}", HTTP_TYPE, main_address, branch_name);
+	let path = format!("{}/mods/{}", main_address, branch_name);
 	let res = get_client().get(path).send().await?;
 
 	Ok(res)

@@ -1,12 +1,14 @@
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::{BufReader, Read, Result};
+use std::collections::{HashMap, HashSet};
+use std::io::{Read, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use fltk::app;
 use futures_util::StreamExt;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::RwLock;
+use tokio::fs::File;
+use tokio::io::{AsyncWriteExt, BufWriter};
+use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::time::{Duration, Instant};
 use zip::ZipArchive;
 
 use crate::api::{self, Mod};
@@ -88,20 +90,31 @@ pub fn get_mods_to_download(remote_mods: &Mods, local_mods: &ModNames) -> Mods {
 }
 
 /// Get all mod names that are in local_mods but not in remote_mods
-pub fn get_mods_to_delete(remote_mods: &Mods, local_mods: &ModNames) -> ModNames {
-	let remote_mod_names: HashSet<&String> =
-		HashSet::from_iter(remote_mods.iter().map(|e| &e.name));
+/// And get all installed optional mod names
+// TODO: return 1 vec with Mod struct
+pub fn get_mods_to_delete(remote_mods: &Mods, local_mods: &ModNames) -> (ModNames, ModNames) {
+	let mut remote_mod_map: HashMap<&String, &Mod> = HashMap::new();
+	for remote_mod in remote_mods {
+		remote_mod_map.insert(&remote_mod.name, &remote_mod);
+	}
 
-	local_mods
-		.iter()
-		.filter(|e| !remote_mod_names.contains(e))
-		.cloned()
-		.collect()
+	(
+		local_mods
+			.iter()
+			.filter(|e| !remote_mod_map.contains_key(e))
+			.cloned()
+			.collect(),
+		local_mods
+			.iter()
+			.filter(|e| remote_mod_map.get(e).is_some_and(|v| v.is_optional))
+			.cloned()
+			.collect(),
+	)
 }
 
 pub async fn download_files(
-	fltk_tx: fltk::app::Sender<Events>,
-	progress_stop_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<bool>>>,
+	fltk_tx: app::Sender<Events>,
+	progress_stop_rx: Arc<Mutex<mpsc::Receiver<bool>>>,
 	app_state: Arc<RwLock<AppState>>,
 	total_count: usize,
 ) {
@@ -137,8 +150,8 @@ pub async fn download_files(
 				let file_size = res.content_length().unwrap_or(u64::max_value());
 
 				let path = mods_pathbuf.join(&mcmod.name);
-				let file = tokio::fs::File::create(&path).await.unwrap();
-				let mut file_out = tokio::io::BufWriter::new(file);
+				let file = File::create(&path).await.unwrap();
+				let mut file_out = BufWriter::new(file);
 
 				// TODO: move total_count out of here
 				fltk_tx.send(Events::DownloadNewFile {
@@ -151,8 +164,8 @@ pub async fn download_files(
 				let mut stream = res.bytes_stream();
 				let mut stopped = false;
 
-				let mut prev_time = tokio::time::Instant::now();
-				let check_ms = tokio::time::Duration::from_millis(500);
+				let mut prev_time = Instant::now();
+				let check_ms = Duration::from_millis(500);
 				let mut size_under_time = 0;
 				let mut prev_bps = 0.0;
 
@@ -172,7 +185,7 @@ pub async fn download_files(
 					let chunk_size = c.len();
 					size_under_time += chunk_size;
 
-					let now_time = tokio::time::Instant::now();
+					let now_time = Instant::now();
 					let elapsed = now_time.duration_since(prev_time);
 					if elapsed >= check_ms {
 						let secs = elapsed.as_secs_f64();
@@ -212,8 +225,8 @@ pub async fn download_files(
 }
 
 pub async fn download_zip(
-	fltk_tx: fltk::app::Sender<Events>,
-	progress_stop_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<bool>>>,
+	fltk_tx: app::Sender<Events>,
+	progress_stop_rx: Arc<Mutex<mpsc::Receiver<bool>>>,
 	app_state: Arc<RwLock<AppState>>,
 ) {
 	let app_state_locked = app_state.read().await;
@@ -234,8 +247,8 @@ pub async fn download_zip(
 
 			let file_name = format!("{}.zip", &branch_name);
 			let path = Path::new(".").join(&file_name);
-			let file = tokio::fs::File::create(&path).await.unwrap();
-			let mut file_out = tokio::io::BufWriter::new(file);
+			let file = File::create(&path).await.unwrap();
+			let mut file_out = BufWriter::new(file);
 
 			// TODO: move total_count out of here
 			fltk_tx.send(Events::DownloadNewFile {
@@ -248,8 +261,8 @@ pub async fn download_zip(
 			let mut stream = res.bytes_stream();
 			let mut stopped = false;
 
-			let mut prev_time = tokio::time::Instant::now();
-			let check_ms = tokio::time::Duration::from_millis(500);
+			let mut prev_time = Instant::now();
+			let check_ms = Duration::from_millis(500);
 			let mut size_under_time = 0;
 			let mut prev_bps = 0.0;
 
@@ -269,7 +282,7 @@ pub async fn download_zip(
 				let chunk_size = c.len();
 				size_under_time += chunk_size;
 
-				let now_time = tokio::time::Instant::now();
+				let now_time = Instant::now();
 				let elapsed = now_time.duration_since(prev_time);
 				if elapsed >= check_ms {
 					let secs = elapsed.as_secs_f64();
@@ -313,8 +326,8 @@ pub async fn download_zip(
 
 pub async fn unzip_mod_zip(
 	zip_path: &Path,
-	fltk_tx: fltk::app::Sender<Events>,
-	progress_stop_rx: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<bool>>>,
+	fltk_tx: app::Sender<Events>,
+	progress_stop_rx: Arc<Mutex<mpsc::Receiver<bool>>>,
 	app_state: Arc<RwLock<AppState>>,
 ) {
 	let app_state_locked = app_state.read().await;
@@ -337,8 +350,8 @@ pub async fn unzip_mod_zip(
 	let total_size = mcmods.iter().fold(0, |acc, x| acc + x.size);
 
 	// TODO: async?
-	let zip_file = File::open(zip_path).unwrap();
-	let zip_reader = BufReader::new(zip_file);
+	let zip_file = std::fs::File::open(zip_path).unwrap();
+	let zip_reader = std::io::BufReader::new(zip_file);
 	let mut archive = ZipArchive::new(zip_reader).unwrap();
 
 	fltk_tx.send(Events::ShowDownloadModal {
@@ -370,11 +383,11 @@ pub async fn unzip_mod_zip(
 			total_file_count: file_count,
 		});
 
-		let out_file = tokio::fs::File::create(&outpath).await.unwrap();
-		let mut out_buf = tokio::io::BufWriter::new(out_file);
+		let out_file = File::create(&outpath).await.unwrap();
+		let mut out_buf = BufWriter::new(out_file);
 
-		let mut prev_time = tokio::time::Instant::now();
-		let check_ms = tokio::time::Duration::from_millis(10);
+		let mut prev_time = Instant::now();
+		let check_ms = Duration::from_millis(10);
 		let mut size_since_update = 0;
 
 		loop {
@@ -397,7 +410,7 @@ pub async fn unzip_mod_zip(
 							downloaded_chunk: size_since_update,
 						});
 
-						prev_time = tokio::time::Instant::now();
+						prev_time = Instant::now();
 						size_since_update = 0;
 					}
 				}

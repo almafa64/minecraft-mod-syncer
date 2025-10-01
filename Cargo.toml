@@ -2,7 +2,7 @@
 name = "minecraft-mod-syncer"
 authors = ["almafa64"]
 repository = "https://github.com/almafa64/minecraft-mod-syncer"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 
 #[profile.release]
@@ -21,3 +21,4 @@ futures-util = "0.3.31"
 zip = { version = "5.1.1", default-features = false, features = ["time", "deflate"]}
 dashmap = { version = "6.1.0", features = ["serde"]}
 fltk-theme = "0.7.9"
+semver = "1.0.27"

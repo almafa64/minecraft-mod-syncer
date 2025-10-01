@@ -9,9 +9,8 @@ use std::{
 
 use fltk::{browser::CheckBrowser, prelude::*, *};
 use lazy_static::lazy_static;
-use tokio::sync::RwLock;
-
-use tokio::sync::Mutex;
+use semver::Version;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::api::BranchInfo;
 
@@ -90,8 +89,7 @@ lazy_static! {
 }
 
 // TODO:
-// check out unwrap usage
-// set every widget value in app_state even if not good (so profiles can save it)
+// Should app_state.branch_info.mods be a hashmap instead of vec?
 // Possible changes in profiles
 //   - dont revert to default when deleting selected profile
 //     - in this state there shouldnt be any red text
@@ -100,13 +98,13 @@ lazy_static! {
 #[tokio::main]
 async fn main() {
 	let app_state = Arc::new(RwLock::new(AppState::default()));
-	
+
 	let mut profiles_map = profiles::load_profiles().await;
 
 	if !profiles_map.profile_exists(DEFAULT_PROFILE_NAME) {
 		profiles_map.new_profile(
 			DEFAULT_PROFILE_NAME,
-			profiles::Profile::new("themoonbase.dnet.hu/minecraft", "", None),
+			profiles::Profile::new("https://themoonbase.dnet.hu/minecraft", "", None),
 		);
 		profiles_map.set_last_profile_name(DEFAULT_PROFILE_NAME);
 		profiles::save_profiles(&profiles_map).await;
@@ -121,6 +119,16 @@ async fn main() {
 	let (fltk_tx, fltk_rx) = app::channel::<Events>();
 	let (progress_stop_tx, progress_stop_rx) = tokio::sync::mpsc::channel::<bool>(1);
 	let progress_stop_rx = Arc::new(Mutex::new(progress_stop_rx));
+
+	// Check if new version is avaliable
+	if let Ok(repo_version) = api::get_repo_version().await {
+		if Version::parse(VERSION).is_ok_and(|v| repo_version > v) {
+			fltk_tx.send(Events::Alert(String::from(&format!(
+				"Update avaliable. New version: {}!",
+				repo_version
+			))));
+		}
+	}
 
 	// ----- Main window section  -----
 
@@ -219,8 +227,9 @@ async fn main() {
 	download_list.set_trigger(enums::CallbackTrigger::Changed);
 	delete_list.set_trigger(enums::CallbackTrigger::Changed);
 
+	// TODO: setting for auto save on exit
 	// TODO: dont use sleep
-    // INFO: save current profile before quiting
+	// INFO: save current profile before quiting
 	main_wind.set_callback(move |_| {
 		fltk_tx.send(Events::MenuSaveProfile(String::from("")));
 		tokio::spawn(async {
@@ -330,7 +339,7 @@ async fn main() {
 	cancel_button.set_callback(move |_| {
 		let progress_stop_tx = progress_stop_tx.clone();
 		tokio::spawn(async move {
-			progress_stop_tx.send(true).await.unwrap();
+			let _ = progress_stop_tx.send(true).await;
 		});
 	});
 
@@ -384,7 +393,7 @@ async fn main() {
 	link_button.set_label_color(enums::Color::Blue);
 	link_button.set_label_font(enums::Font::HelveticaItalic);
 	link_button.set_callback(|_| {
-		fltk::utils::open_uri(&REPOSITORY).unwrap();
+		let _ = fltk::utils::open_uri(&REPOSITORY);
 	});
 
 	link_flex.fixed(&link_label, link_label.measure_label().0);
@@ -402,9 +411,9 @@ async fn main() {
 		if let Some(val) = fltk_rx.recv() {
 			match val {
 				Events::GetBranches => {
-					let address = server_ip_input.value().to_string();
-
 					let mut app_state_locked = app_state.write().await;
+
+					let address = server_ip_input.value().to_string();
 
 					// TODO: update if branches changed (this line skips that)
 					// INFO: returns if current address is the same as the previous
@@ -432,6 +441,7 @@ async fn main() {
 						continue;
 					}
 
+					// TODO: only set these after checking if address works
 					app_state_locked.server_api_address = Some(address.clone() + "/api");
 					app_state_locked.server_main_address = Some(address);
 
@@ -453,12 +463,27 @@ async fn main() {
 					});
 				}
 				Events::BranchesResult(branch_names) => {
+					let app_state_locked = app_state.read().await;
+
 					println!("Got branches: {:?}", branch_names);
 
 					for branch_name in branch_names {
 						branch_chooser.add_choice(&branch_name);
 					}
+
 					branch_chooser.set_value(0);
+
+					// this is for profile switching with address change
+					if let Some(profile) = app_state_locked
+						.profile_name
+						.as_ref()
+						.and_then(|v| profiles_map.get_profile(v))
+					{
+						let i = branch_chooser.find_index(&profile.branch);
+						if i >= 0 {
+							branch_chooser.set_value(i);
+						}
+					}
 
 					fltk_tx.send(Events::GetMods);
 				}
@@ -470,6 +495,19 @@ async fn main() {
 				}
 				Events::GetMods => {
 					let mut app_state_locked = app_state.write().await;
+
+					let mods_path_str = mods_path_input.value();
+					let dir = PathBuf::from(&mods_path_str);
+
+					if !syncer::is_mods_folder(&dir) {
+						fltk_tx.send(Events::Alert(String::from(
+							"Selected folder isn't minecraft mods folder!",
+						)));
+						app_state_locked.mods_path = None;
+						mods_path_input.set_value("");
+					} else {
+						app_state_locked.mods_path = Some(dir);
+					}
 
 					delete_list.clear();
 					download_list.clear();
@@ -531,7 +569,8 @@ async fn main() {
 					let local_mod_names = syncer::get_local_mods(&mods_pathbuf).unwrap();
 					let remote_mods = &app_state_locked.branch_info.as_ref().unwrap().mods;
 
-					let to_deletes = syncer::get_mods_to_delete(remote_mods, &local_mod_names);
+					let (to_deletes, to_delete_optionals) =
+						syncer::get_mods_to_delete(remote_mods, &local_mod_names);
 					let to_downloads = syncer::get_mods_to_download(remote_mods, &local_mod_names);
 
 					let profile = profiles_map
@@ -551,6 +590,15 @@ async fn main() {
 						app_state_locked
 							.to_delete_names
 							.insert(to_delete.to_string(), is_checked);
+					}
+
+					for to_delete_optional in to_delete_optionals.iter() {
+						let is_checked = false;
+
+						delete_list.add(to_delete_optional, is_checked);
+						app_state_locked
+							.to_delete_names
+							.insert(to_delete_optional.to_string(), is_checked);
 					}
 
 					for to_download in to_downloads.iter() {
@@ -647,20 +695,6 @@ async fn main() {
 					});
 				}
 				Events::PathSet => {
-					let mut app_state_locked = app_state.write().await;
-
-					let mods_path_str = mods_path_input.value();
-					let dir = Path::new(&mods_path_str);
-
-					if !syncer::is_mods_folder(&dir) {
-						dialog::alert_default(&"Selected folder isn't minecraft mod folder!");
-						app_state_locked.mods_path = None;
-						mods_path_input.set_value("");
-						continue;
-					}
-
-					app_state_locked.mods_path = Some(dir.to_path_buf());
-
 					fltk_tx.send(Events::GetMods);
 				}
 				Events::PathBrowse => {
@@ -677,15 +711,13 @@ async fn main() {
 
 					let remote_mods = &app_state_locked.branch_info.as_ref().unwrap().mods;
 
-					// TODO: Should 'mods' be a hashmap instead of vec?
 					// INFO: if item gets unchecked but not supposed to (aka it's required) then
 					// give error and recheck the item
 					if !is_checked
 						&& !remote_mods
 							.iter()
 							.find(|&e| e.name == modname)
-							.unwrap()
-							.is_optional
+							.is_some_and(|v| v.is_optional)
 					{
 						download_list.set_checked(download_list.value());
 						fltk_tx.send(Events::Alert(String::from("Cannot uncheck required mod!")));
@@ -704,6 +736,19 @@ async fn main() {
 					let is_checked = delete_list.checked(delete_list.value());
 
 					*app_state_locked.to_delete_names.get_mut(&modname).unwrap() = is_checked;
+
+					// INFO: skip changing keep mods if mod is optional
+					if app_state_locked
+						.branch_info
+						.as_ref()
+						.unwrap()
+						.mods
+						.iter()
+						.find(|v| v.is_optional && v.name == modname)
+						.is_some()
+					{
+						continue;
+					}
 
 					if let Some(profile) = app_state_locked
 						.profile_name
@@ -757,7 +802,7 @@ async fn main() {
 				}
 				// TODO: pass total, current downloaded chunk instead of calculating here
 				Events::DownloadProgess { downloaded_chunk } => {
-                    // INFO: add chunk size to progress bars value
+					// INFO: add chunk size to progress bars value
 
 					current_progress.set_value(current_progress.value() + downloaded_chunk as f64);
 					current_progress.set_label(&format!(
@@ -821,8 +866,7 @@ async fn main() {
 						.unwrap();
 					item.set_label_color(enums::Color::Red);
 
-					let profile = profiles_map.get_profile(&name);
-					let profile = profile.as_ref().unwrap().value();
+					let profile = profiles_map.get_profile(&name).unwrap();
 
 					server_ip_input.set_value(&profile.address);
 
@@ -841,14 +885,14 @@ async fn main() {
 					} else {
 						mods_path_input.set_value(&profile.mods_path);
 					}
-                    // TODO: remove this after centralizing value saving
-					mods_path_input.do_callback();
 
+					// this is for profile switching without address change
 					let i = branch_chooser.find_index(&profile.branch);
 					if i >= 0 {
 						branch_chooser.set_value(i);
 					}
-					server_ip_input.do_callback();
+
+					fltk_tx.send(Events::GetBranches);
 
 					app_state_locked.profile_name = Some(name);
 				}

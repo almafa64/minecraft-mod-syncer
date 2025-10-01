@@ -6,6 +6,7 @@ A simple tool for downloading necessary mods from [my custom host webserver](htt
 - [X] download zip + unzip it
 - [X] download files separately
 - [X] delete mods from local
+- [X] show optional mods in delete list so they can be deleted
 - [ ] checksum comparison
 - [ ] settings menu
   - [ ] colors
@@ -14,11 +15,13 @@ A simple tool for downloading necessary mods from [my custom host webserver](htt
   - [ ] config file path
   - [ ] translation
 - [ ] grey out required mods
+- [ ] grey out optional to deletes
 - [X] optional mods
 - [ ] checking version changes (must download/delete)
 - [X] saving uncheked to_delete mods to keep file + load them
 - [X] profiles
 - [X] about dialog
+- [X] check new version from github
 - [ ] auto update from github
 
 ## FAQ
