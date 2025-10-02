@@ -176,9 +176,14 @@ pub async fn download_files(
 						break;
 					}
 
-					// INFO: try again chunk
+					// TODO: try again chunk instead
+					// INFO: delete file to indicate failure
 					if chunk.is_err() {
-						continue;
+						let e = chunk.unwrap_err();
+						fltk_tx.send(Events::Alert(format!("Error during downloading: {:?}", e)));
+						file_out.shutdown().await.unwrap();
+						tokio::fs::remove_file(&path).await.unwrap();
+						break;
 					}
 
 					let c = chunk.unwrap();
@@ -273,9 +278,13 @@ pub async fn download_zip(
 					break;
 				}
 
-				// INFO: try again chunk
+				// TODO: try again chunk instead
+				// INFO: delete file to indicate failure
 				if chunk.is_err() {
-					continue;
+					let e = chunk.unwrap_err();
+					fltk_tx.send(Events::Alert(format!("Error during downloading: {:?}", e)));
+					stopped = true;
+					break;
 				}
 
 				let c = chunk.unwrap();
