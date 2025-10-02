@@ -31,7 +31,7 @@ pub struct BranchInfo {
 fn get_client() -> &'static Client {
 	static CLIENT: LazyLock<Client> = LazyLock::new(|| {
 		Client::builder()
-			.timeout(Duration::from_secs(10))
+			.connect_timeout(Duration::from_secs(2))
 			.build()
 			.unwrap()
 	});
@@ -44,7 +44,7 @@ pub async fn get_repo_version() -> std::result::Result<Version, Box<dyn std::err
 	let path = format!("{}/releases/latest", env!("CARGO_PKG_REPOSITORY"));
 	let res = Client::builder()
 		.redirect(reqwest::redirect::Policy::none())
-		.timeout(Duration::from_secs(10))
+		.connect_timeout(Duration::from_secs(2))
 		.build()
 		.unwrap()
 		.head(path)
