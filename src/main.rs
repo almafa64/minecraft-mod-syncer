@@ -699,10 +699,15 @@ async fn main() {
 					}
 				}
 				Events::DownloadListUpdate => {
+					let index = download_list.value();
+					if index == 0 {
+						continue;
+					}
+
 					let mut app_state_locked = app_state.write().await;
 
-					let modname = download_list.text(download_list.value()).unwrap();
-					let is_checked = download_list.checked(download_list.value());
+					let modname = download_list.text(index).unwrap();
+					let is_checked = download_list.checked(index);
 
 					let remote_mods = &app_state_locked.branch_info.as_ref().unwrap().mods;
 
@@ -714,7 +719,7 @@ async fn main() {
 							.find(|&e| e.name == modname)
 							.is_some_and(|v| v.is_optional)
 					{
-						download_list.set_checked(download_list.value());
+						download_list.set_checked(index);
 						fltk_tx.send(Events::Alert(String::from("Cannot uncheck required mod!")));
 						continue;
 					}
@@ -725,10 +730,15 @@ async fn main() {
 						.unwrap() = is_checked;
 				}
 				Events::DeleteListUpdate => {
+					let index = delete_list.value();
+					if index == 0 {
+						continue;
+					}
+
 					let mut app_state_locked = app_state.write().await;
 
-					let modname = delete_list.text(delete_list.value()).unwrap();
-					let is_checked = delete_list.checked(delete_list.value());
+					let modname = delete_list.text(index).unwrap();
+					let is_checked = delete_list.checked(index);
 
 					*app_state_locked.to_delete_names.get_mut(&modname).unwrap() = is_checked;
 
