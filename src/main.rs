@@ -66,6 +66,7 @@ pub enum Events {
 		bytes_per_s: f64,
 	},
 	DownloadStop,
+	DownloadCancel,
 	DeleteMods,
 
 	// Menu events
@@ -336,12 +337,6 @@ async fn main() {
 	let mut total_progress = misc::Progress::default();
 
 	let mut cancel_button = button::Button::default().with_label("Cancel");
-	cancel_button.set_callback(move |_| {
-		let progress_stop_tx = progress_stop_tx.clone();
-		tokio::spawn(async move {
-			let _ = progress_stop_tx.send(true).await;
-		});
-	});
 
 	current_progress.set_selection_color(enums::Color::Green);
 	total_progress.set_selection_color(enums::Color::Green);
@@ -355,9 +350,9 @@ async fn main() {
 	download_flex.fixed(&cancel_button, 30);
 
 	download_wind.set_trigger(enums::CallbackTrigger::Closed);
-	download_wind.set_callback(move |_| {
-		cancel_button.do_callback();
-	});
+
+	download_wind.emit(fltk_tx, Events::DownloadCancel);
+	cancel_button.emit(fltk_tx, Events::DownloadCancel);
 
 	download_flex.end();
 	download_wind.make_modal(true);
@@ -822,6 +817,9 @@ async fn main() {
 				Events::DownloadStop => {
 					download_wind.hide();
 					fltk_tx.send(Events::GetMods);
+				}
+				Events::DownloadCancel => {
+					let _ = progress_stop_tx.send(true).await;
 				}
 				Events::DeleteMods => {
 					let app_state = app_state.clone();
