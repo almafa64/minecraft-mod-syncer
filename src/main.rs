@@ -1,4 +1,4 @@
-//#![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 use std::{
 	collections::{HashMap, HashSet},
@@ -90,6 +90,7 @@ lazy_static! {
 }
 
 // TODO:
+// panic message box when no console
 // Should app_state.branch_info.mods be a hashmap instead of vec?
 // Possible changes in profiles
 //   - dont revert to default when deleting selected profile
@@ -781,6 +782,7 @@ async fn main() {
 					}
 				}
 				Events::Alert(text) => {
+					dialog::message_title("Alert!");
 					dialog::alert_default(&text);
 				}
 
@@ -905,8 +907,6 @@ async fn main() {
 					app_state_locked.profile_name = Some(name);
 				}
 				Events::MenuNewProfile => {
-					let mut app_state_locked = app_state.write().await;
-
 					let name = dialog::input_default("Name for new profile:", "")
 						.map(|v| String::from(v.trim()));
 
@@ -940,6 +940,8 @@ async fn main() {
 						Events::MenuProfile(name.clone()),
 					);
 
+					let mut app_state_locked = app_state.write().await;
+
 					if let Some(prev_profile_name) = app_state_locked.profile_name.as_ref() {
 						if let Some(mut prev_item) =
 							menubar.find_item(&format!("&File/Profiles/{}", prev_profile_name))
@@ -958,8 +960,6 @@ async fn main() {
 					ip_ok_button.do_callback();
 				}
 				Events::MenuDeleteProfile => {
-					let app_state_locked = app_state.read().await;
-
 					let name = dialog::input_default("Name of profile to delete:", "")
 						.map(|v| String::from(v.trim()));
 
@@ -983,6 +983,8 @@ async fn main() {
 
 					let i = menubar.find_index(&format!("&File/Profiles/{}", &name));
 					menubar.remove(i);
+
+					let app_state_locked = app_state.read().await;
 
 					if app_state_locked
 						.profile_name
