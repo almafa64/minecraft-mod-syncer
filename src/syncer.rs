@@ -137,6 +137,11 @@ pub async fn download_files(
 		.filter(|x| to_downloads.contains(&x.name))
 		.collect();
 
+	let mut prev_time = Instant::now();
+	let check_ms = Duration::from_millis(500);
+	let mut size_under_time = 0;
+	let mut prev_bps = 0.0;
+
 	for (i, mcmod) in mcmods.iter().enumerate() {
 		let res = api::request_mod(&download_address, &branch_name, &mcmod.name).await;
 		match res {
@@ -164,11 +169,6 @@ pub async fn download_files(
 				let mut stream = res.bytes_stream();
 				let mut stopped = false;
 
-				let mut prev_time = Instant::now();
-				let check_ms = Duration::from_millis(500);
-				let mut size_under_time = 0;
-				let mut prev_bps = 0.0;
-
 				let mut progress_stop_rx = progress_stop_rx.lock().await;
 				while let Some(chunk) = stream.next().await {
 					if let Ok(true) = progress_stop_rx.try_recv() {
@@ -186,26 +186,25 @@ pub async fn download_files(
 						break;
 					}
 
-					let c = chunk.unwrap();
-					let chunk_size = c.len();
+					let chunk = chunk.unwrap();
+					let chunk_size = chunk.len();
 					size_under_time += chunk_size;
 
-					let now_time = Instant::now();
-					let elapsed = now_time.duration_since(prev_time);
-					if elapsed >= check_ms {
-						let secs = elapsed.as_secs_f64();
+					if prev_time.elapsed() >= check_ms {
+						let secs = prev_time.elapsed().as_secs_f64();
 						let bps = size_under_time as f64 / secs;
 
+						// spare some events from firing if net is stable
 						if bps != prev_bps {
 							fltk_tx.send(Events::DownloadSpeedMeter { bytes_per_s: bps });
 							prev_bps = bps;
 						}
 
-						prev_time = now_time;
+						prev_time = Instant::now();
 						size_under_time = 0;
 					}
 
-					file_out.write_all(&c).await.unwrap();
+					file_out.write_all(&chunk).await.unwrap();
 
 					fltk_tx.send(Events::DownloadProgess {
 						downloaded_chunk: chunk_size,
@@ -216,7 +215,7 @@ pub async fn download_files(
 
 				if stopped {
 					fltk_tx.send(Events::DownloadStop);
-					tokio::fs::remove_file(path).await.unwrap();
+					tokio::fs::remove_file(&path).await.unwrap();
 					return;
 				}
 			}
@@ -287,14 +286,12 @@ pub async fn download_zip(
 					break;
 				}
 
-				let c = chunk.unwrap();
-				let chunk_size = c.len();
+				let chunk = chunk.unwrap();
+				let chunk_size = chunk.len();
 				size_under_time += chunk_size;
 
-				let now_time = Instant::now();
-				let elapsed = now_time.duration_since(prev_time);
-				if elapsed >= check_ms {
-					let secs = elapsed.as_secs_f64();
+				if prev_time.elapsed() >= check_ms {
+					let secs = prev_time.elapsed().as_secs_f64();
 					let bps = size_under_time as f64 / secs;
 
 					if bps != prev_bps {
@@ -302,11 +299,11 @@ pub async fn download_zip(
 						prev_bps = bps;
 					}
 
-					prev_time = now_time;
+					prev_time = Instant::now();
 					size_under_time = 0;
 				}
 
-				file_out.write_all(&c).await.unwrap();
+				file_out.write_all(&chunk).await.unwrap();
 
 				fltk_tx.send(Events::DownloadProgess {
 					downloaded_chunk: chunk_size,
@@ -317,7 +314,7 @@ pub async fn download_zip(
 
 			if stopped {
 				fltk_tx.send(Events::DownloadStop);
-				tokio::fs::remove_file(path).await.unwrap();
+				tokio::fs::remove_file(&path).await.unwrap();
 				return;
 			}
 
@@ -358,7 +355,6 @@ pub async fn unzip_mod_zip(
 
 	let total_size = mcmods.iter().fold(0, |acc, x| acc + x.size);
 
-	// TODO: async?
 	let zip_file = std::fs::File::open(zip_path).unwrap();
 	let zip_reader = std::io::BufReader::new(zip_file);
 	let mut archive = ZipArchive::new(zip_reader).unwrap();
@@ -370,6 +366,10 @@ pub async fn unzip_mod_zip(
 	let file_count = archive.len();
 	let mut stopped = false;
 	let mut progress_stop_rx_locked = progress_stop_rx.lock().await;
+
+	let check_ms = Duration::from_millis(20);
+	let mut prev_time = Instant::now();
+	let mut size_since_update = 0;
 
 	let mut buf = [0u8; 64 * 1024];
 
@@ -394,10 +394,6 @@ pub async fn unzip_mod_zip(
 
 		let out_file = File::create(&outpath).await.unwrap();
 		let mut out_buf = BufWriter::new(out_file);
-
-		let mut prev_time = Instant::now();
-		let check_ms = Duration::from_millis(10);
-		let mut size_since_update = 0;
 
 		loop {
 			if let Ok(true) = progress_stop_rx_locked.try_recv() {
@@ -434,10 +430,10 @@ pub async fn unzip_mod_zip(
 		out_buf.shutdown().await.unwrap();
 
 		if stopped {
-			tokio::fs::remove_file(outpath).await.unwrap();
+			tokio::fs::remove_file(&outpath).await.unwrap();
 			break;
 		}
 	}
 
-	tokio::fs::remove_file(zip_path).await.unwrap();
+	tokio::fs::remove_file(&zip_path).await.unwrap();
 }
