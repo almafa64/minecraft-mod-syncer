@@ -99,6 +99,8 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() {
+	let logo = image::PngImage::from_data(include_bytes!("../syncer_logo.png")).unwrap();
+
 	let app_state = Arc::new(RwLock::new(AppState::default()));
 
 	let mut profiles_map = profiles::load_profiles().await;
@@ -138,6 +140,7 @@ async fn main() {
 		.with_size(1000, 700)
 		.with_label("Minecraft mod syncer");
 	main_wind.make_resizable(true);
+	main_wind.set_icon(Some(logo.clone()));
 
 	// flex so menubar doesn't scale with window
 	let mut flex = group::Flex::default().size_of_parent().column();
@@ -364,6 +367,8 @@ async fn main() {
 	let mut about_win = window::Window::default()
 		.with_size(500, 100)
 		.with_label("About");
+	about_win.set_icon(Some(logo.clone()));
+
 	let mut about_flex = group::Flex::default()
 		.with_type(group::FlexType::Column)
 		.size_of_parent();
