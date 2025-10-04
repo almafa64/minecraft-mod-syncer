@@ -188,6 +188,8 @@ async fn main() {
 	info_flex.end();
 
 	let mut download_but = button::Button::default().with_label("Download");
+	//download_but.set_label_font(enums::Font::HelveticaBold);
+	download_but.set_label_size(18);
 
 	main_wind.end();
 
@@ -209,8 +211,8 @@ async fn main() {
 	flex.fixed(&menubar, 30);
 	flex.fixed(&input_flex, 30);
 	flex.fixed(&branch_flex, 30);
-	flex.fixed(&mod_dir_flex, 30);
-	flex.fixed(&download_but, 30);
+	flex.fixed(&mod_dir_flex, 35);
+	flex.fixed(&download_but, 40);
 
 	flex.set_margin(30);
 	flex.end();
