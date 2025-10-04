@@ -2,7 +2,7 @@
 name = "minecraft-mod-syncer"
 authors = ["almafa64"]
 repository = "https://github.com/almafa64/minecraft-mod-syncer"
-version = "0.5.0"
+version = "1.0.0"
 edition = "2024"
 
 #[profile.release]

@@ -106,10 +106,7 @@ async fn main() {
 	let mut profiles_map = profiles::load_profiles().await;
 
 	if !profiles_map.profile_exists(DEFAULT_PROFILE_NAME) {
-		profiles_map.new_profile(
-			DEFAULT_PROFILE_NAME,
-			profiles::Profile::new("https://themoonbase.dnet.hu/minecraft", "", None),
-		);
+		profiles_map.new_profile(DEFAULT_PROFILE_NAME, profiles::Profile::new("", "", None));
 		profiles_map.set_last_profile_name(DEFAULT_PROFILE_NAME);
 		profiles::save_profiles(&profiles_map).await;
 	}
