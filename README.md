@@ -34,8 +34,8 @@ A simple tool for downloading necessary mods (and/or optionals) from [my mod hos
 - [ ] auto update from github
 - [ ] CLI
 
-## Caution
-If the host server gets a new branch while this program runs it won't fetch it. (fix is planned)
+## Known bugs
+If the host server gets a new branch while this program runs it won't fetch it.
 
 ## Building
 ### Prerequisits
